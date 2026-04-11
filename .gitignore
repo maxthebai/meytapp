@@ -3,3 +3,7 @@ venv/
 __pycache__/
 *.db
 credentials.yaml
+credentials.yaml
+meytapp.db
+venv/
+__pycache__/
