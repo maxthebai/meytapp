@@ -46,7 +46,7 @@ def import_result(url: str, user_id: str):
 
 
 st.set_page_config(
-    page_title="Meyton ESTA 5 - Schießergebnisse",
+    page_title="Meytapp - Schießergebnisse",
     page_icon="🎯",
     layout="wide"
 )
@@ -144,7 +144,7 @@ elif st.session_state.authentication_status is None:
 username = st.session_state.username
 user_name = st.session_state.name
 
-st.title(f"🎯 Meyton ESTA 5 - Willkommen, {user_name}!")
+st.title(f"🎯 Meytapp - Willkommen, {user_name}!")
 st.markdown(f"Angemeldet als **{username}**.")
 authenticator.logout(location="sidebar")
 st.divider()
@@ -293,17 +293,4 @@ if shootings:
 else:
     st.info("Noch keine Schießergebnisse gespeichert. Importiere ein Ergebnis über die URL oben.")
 
-# Sidebar info
-st.sidebar.header("Info")
-st.sidebar.markdown("""
-**Meyton ESTA 5**
 
-Dieses Tool liest die PDF-Dateien von Meyton ESTA 5 QR-Codes aus und speichert die Ergebnisse in einer lokalen Datenbank.
-
-**Unterstützte Disziplinen:**
-- Luftpistole
-- Luftgewehr
-- Freie Pistole
-- Standardpistole
-- uvm.
-""")
