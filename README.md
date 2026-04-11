@@ -1,4 +1,4 @@
-# Meyton ESTA 5 - Schießergebnisse
+# Meytapp - Schießergebnisse
 
 Eine Streamlit-App zur Verarbeitung und Speicherung von Meyton ESTA 5 QR-Code-Ergebnissen.
 
@@ -73,3 +73,13 @@ meytapp/
 ├── README.md
 └── meytapp.db       # (wird automatisch erstellt)
 ```
+
+## ⚖️ Haftungsausschluss (Disclaimer)
+
+Wichtiger Hinweis: Dieses Projekt ist ein rein privates Open-Source-Tool und steht in keinerlei Verbindung zur Meyton Elektronik GmbH.
+
+Die Begriffe "Meyton" und "ESTA 5" sind geschützte Markenzeichen der jeweiligen Eigentümer.
+
+Diese App dient lediglich der statistischen Aufarbeitung von Schießergebnissen, die vom Nutzer selbst über die bereitgestellten QR-Codes der Meyton-Anlagen bezogen wurden.
+
+Die Nutzung erfolgt auf eigene Gefahr. Es wird keine Haftung für die Richtigkeit der Datenextraktion oder etwaige Serverprobleme übernommen.
