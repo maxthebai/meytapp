@@ -235,7 +235,7 @@ if auth_status is None or auth_status is False:
     cookie_result = authenticator.login(location="unrendered")
     if cookie_result:
         st.session_state.name, st.session_state.authentication_status, st.session_state.username = cookie_result
-        st.rerun()
+        # Kein st.rerun() nötig - authentication_status ist jetzt gesetzt und Flow geht normal weiter
 
     tab_login, tab_register = st.columns(2)
 
@@ -336,7 +336,7 @@ with tab1:
         key="url_input"
     )
 
-    if st.button("Ergebnis importieren", type="primary", use_container_width=True):
+    if st.button("Ergebnis importieren", type="primary", width='stretch'):
         if url_input:
             import_result(url_input, username)
         else:
@@ -359,10 +359,10 @@ with tab2:
     # Fallback-Upload Button
     col_cam, col_upload = st.columns([1, 1])
     with col_cam:
-        if st.button("📷 Kamera starten", use_container_width=True):
+        if st.button("📷 Kamera starten", width='stretch'):
             st.session_state.show_upload = False
     with col_upload:
-        if st.button("📁 Bild hochladen", use_container_width=True):
+        if st.button("📁 Bild hochladen", width='stretch'):
             st.session_state.show_upload = True
 
     if st.session_state.show_upload:
@@ -432,13 +432,13 @@ with tab2:
         st.success(f"QR-Code erkannt: {st.session_state.qr_result}")
         c1, c2 = st.columns([1, 1])
         with c1:
-            if st.button("Ergebnis importieren", type="primary", use_container_width=True):
+            if st.button("Ergebnis importieren", type="primary", width='stretch'):
                 success = import_result(st.session_state.qr_result, username)
                 if success:
                     st.session_state.qr_result = None
                     st.rerun()
         with c2:
-            if st.button("Neu scannen", type="secondary", use_container_width=True):
+            if st.button("Neu scannen", type="secondary", width='stretch'):
                 st.session_state.qr_result = None
                 st.rerun()
 
@@ -550,7 +550,7 @@ if shootings:
             if coords:
                 st.plotly_chart(
                     create_target_figure(coords, width=550, height=550),
-                    use_container_width=True
+                    width='stretch'
                 )
             else:
                 st.info("Keine Koordinaten-Daten verfügbar")
@@ -570,7 +570,6 @@ if shootings:
                 series_df = pd.DataFrame(series_data)
                 st.dataframe(
                     series_df,
-                    use_container_width=True,
                     hide_index=True,
                     column_config={
                         "Serie": st.column_config.NumberColumn("Serie", width="small"),
@@ -593,7 +592,7 @@ if shootings:
             markers=True, title="Gesamtringzahl über die Zeit"
         )
         fig.update_layout(xaxis_title="Datum", yaxis_title="Ringe", legend_title="Schütze", height=400)
-        st.plotly_chart(fig, use_container_width=True)
+        st.plotly_chart(fig, width='stretch')
 
 else:
     st.info("Noch keine Schießergebnisse gespeichert. Importiere ein Ergebnis über die URL oben.")
