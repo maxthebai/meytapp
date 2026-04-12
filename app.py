@@ -178,93 +178,96 @@ with tab2:
         3. Die URL wird automatisch erkannt und verarbeitet
     """)
 
-    try:
-        from streamlit_webrtc import webrtc_streamer, WebRtcMode
-        from streamlit_webrtc.models import VideoProcessorBase
-        import cv2
-        import queue
-        import threading
+    # Session-State initialisieren
+    if "qr_result" not in st.session_state:
+        st.session_state.qr_result = None
+    if "show_upload" not in st.session_state:
+        st.session_state.show_upload = False
 
-        if "qr_detected" not in st.session_state:
-            st.session_state.qr_detected = None
-        if "qr_processed" not in st.session_state:
-            st.session_state.qr_processed = False
-        if "qr_scanner_active" not in st.session_state:
-            st.session_state.qr_scanner_active = False
+    # Fallback-Upload Button
+    col_cam, col_upload = st.columns([1, 1])
+    with col_cam:
+        if st.button("📷 Kamera starten", use_container_width=True):
+            st.session_state.show_upload = False
+    with col_upload:
+        if st.button("📁 Bild hochladen", use_container_width=True):
+            st.session_state.show_upload = True
 
-        # Result queue und ein Event für Thread-Kommunikation
-        result_queue = queue.Queue()
-        result_event = threading.Event()
-
-        class QRVideoProcessor(VideoProcessorBase):
-            def __init__(self):
-                self.detector = cv2.QRCodeDetector()
-
-            def recv(self, frame):
-                img = frame.to_ndarray(format="bgr24")
-                data, _, _ = self.detector.detectAndDecode(img)
-                if data:
-                    result_queue.put(data)
-                    result_event.set()
-                return frame
-
-        def on_qr_detected(qr_data):
-            """Callback wenn QR-Code erkannt wurde."""
-            if "esta" in qr_data.lower():
-                st.session_state.qr_detected = qr_data
-                st.session_state.qr_scanner_active = False
-                st.rerun()
-
-        ctx = webrtc_streamer(
-            key="qr-scanner",
-            mode=WebRtcMode.SENDRECV,
-            video_processor_factory=QRVideoProcessor,
-            media_stream_constraints={"video": {"facingMode": "environment", "width": 640, "height": 480}},
-            async_processing=True,
-            desired_playing_state=True,
+    if st.session_state.show_upload:
+        st.info("Lade ein Bild mit QR-Code hoch")
+        uploaded_file = st.file_uploader(
+            "Bild auswählen", type=["png", "jpg", "jpeg"], key="qr_upload"
         )
+        if uploaded_file:
+            import cv2
+            import numpy as np
+            file_bytes = np.frombuffer(uploaded_file.read(), dtype=np.uint8)
+            img = cv2.imdecode(file_bytes, cv2.IMREAD_COLOR)
+            detector = cv2.QRCodeDetector()
+            data, _, _ = detector.detectAndDecode(img)
+            if data and "esta" in data.lower():
+                st.session_state.qr_result = data
+            elif data:
+                st.warning(f"QR-Code gefunden, aber kein gültiger Meyton-Code: {data}")
+            else:
+                st.error("Kein QR-Code im Bild gefunden.")
 
-        if ctx.state.playing:
-            st.session_state.qr_scanner_active = True
+    else:
+        try:
+            from streamlit_webrtc import webrtc_streamer, WebRtcMode
+            from streamlit_webrtc.models import VideoProcessorBase
+            import cv2
+            import queue
 
-        # Queue kontinuierlich prüfen solange der Scanner aktiv ist
-        if st.session_state.qr_scanner_active:
-            placeholder = st.empty()
-            with placeholder.container():
-                st.info("📷 Suche nach QR-Code...")
+            if "qr_queue" not in st.session_state:
+                st.session_state.qr_queue = queue.Queue()
 
-            # Nicht-blockierend die Queue prüfen
-            try:
-                while True:
-                    try:
-                        qr_data = result_queue.get_nowait()
-                        if qr_data and "esta" in qr_data.lower():
-                            st.session_state.qr_detected = qr_data
-                            st.session_state.qr_scanner_active = False
-                            st.rerun()
-                    except queue.Empty:
-                        break
-            except Exception:
-                pass
+            class QRVideoProcessor(VideoProcessorBase):
+                def recv(self, frame):
+                    img = frame.to_ndarray(format="bgr24")
+                    detector = cv2.QRCodeDetector()
+                    data, _, _ = detector.detectAndDecode(img)
+                    if data and "esta" in data.lower():
+                        st.session_state.qr_queue.put(data)
+                    return frame
 
-        if st.session_state.qr_detected:
-            st.success(f"QR-Code erkannt: {st.session_state.qr_detected}")
-            col1, col2 = st.columns([1, 1])
-            with col1:
-                if st.button("Ergebnis importieren", type="primary", use_container_width=True):
-                    success = import_result(st.session_state.qr_detected, username)
-                    if success:
-                        st.session_state.qr_processed = True
-                        st.session_state.qr_detected = None
-                        st.rerun()
-            with col2:
-                if st.button("Neu scannen", type="secondary", use_container_width=True):
-                    st.session_state.qr_detected = None
-                    st.session_state.qr_processed = False
+            ctx = webrtc_streamer(
+                key="qr-scanner",
+                mode=WebRtcMode.SENDRECV,
+                video_processor_factory=QRVideoProcessor,
+                media_stream_constraints={"video": {"facingMode": "environment"}},
+                async_processing=True,
+            )
+
+            if ctx.state.playing:
+                st.info("📷 Suche nach QR-Code... Halte ihn vor die Kamera")
+
+            # Nicht-blockierend Queue prüfen (kein while True!)
+            if not st.session_state.qr_queue.empty():
+                try:
+                    qr_data = st.session_state.qr_queue.get_nowait()
+                    st.session_state.qr_result = qr_data
+                    st.session_state.qr_queue = queue.Queue()  # Reset queue
+                except queue.Empty:
+                    pass
+
+        except ImportError:
+            st.error("Kamera-Bibliothek nicht verfügbar. Bitte nutze 'Bild hochladen'.")
+
+    # Ergebnis-Anzeige (funktioniert für beide Methoden)
+    if st.session_state.qr_result:
+        st.success(f"QR-Code erkannt: {st.session_state.qr_result}")
+        c1, c2 = st.columns([1, 1])
+        with c1:
+            if st.button("Ergebnis importieren", type="primary", use_container_width=True):
+                success = import_result(st.session_state.qr_result, username)
+                if success:
+                    st.session_state.qr_result = None
                     st.rerun()
-
-    except ImportError:
-        st.error("QR-Scanner konnte nicht geladen werden. Bitte installiere: pip install streamlit-webrtc opencv-python-headless")
+        with c2:
+            if st.button("Neu scannen", type="secondary", use_container_width=True):
+                st.session_state.qr_result = None
+                st.rerun()
 
 # Display all shootings for this user
 st.header("Schießhistorie")
