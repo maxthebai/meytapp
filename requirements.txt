@@ -3,7 +3,7 @@ streamlit-webrtc
 streamlit-authenticator
 pdfplumber
 requests
-plotly
+matplotlib
 zxing
 opencv-python-headless
 pyzbar
