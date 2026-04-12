@@ -105,8 +105,12 @@ def process_pdf_bytes(pdf_bytes):
         ring = rings[i]
         angle_clock = arrows[i]["angle"]
 
-        # Dezimalwert verwenden: 9.9 liegt näher am Zentrum als 9.0
-        radius = max(0.0, inner_radius + (10.9 - ring) * ring_step)
+        # Radius innerhalb des korrekten Ringbands berechnen:
+        # Ring 9.9 → nah am Zentrum (0.75mm), Ring 9.0 → nah am Außenrand (3.0mm)
+        ring_int = int(ring)
+        frac = ring - ring_int  # Nachkommaanteil: 9.9→0.9, 9.0→0.0
+        outer = inner_radius + (10 - ring_int) * ring_step
+        radius = max(0.0, outer - frac * ring_step)
             
         theta = math.radians(angle_clock)
         x = round(radius * math.sin(theta), 2)
