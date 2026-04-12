@@ -1,11 +1,9 @@
 streamlit
-streamlit-webrtc
-streamlit-authenticator
-pdfplumber
-requests
+pandas
 matplotlib
-zxing
+numpy
 opencv-python-headless
 pyzbar
-PyYAML
-bcrypt
+PyPDF2
+plotly
+streamlit-authenticator
