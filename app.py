@@ -183,47 +183,84 @@ with tab2:
         from streamlit_webrtc.models import VideoProcessorBase
         import cv2
         import queue
+        import threading
 
         if "qr_detected" not in st.session_state:
             st.session_state.qr_detected = None
         if "qr_processed" not in st.session_state:
             st.session_state.qr_processed = False
+        if "qr_scanner_active" not in st.session_state:
+            st.session_state.qr_scanner_active = False
+
+        # Result queue und ein Event für Thread-Kommunikation
+        result_queue = queue.Queue()
+        result_event = threading.Event()
 
         class QRVideoProcessor(VideoProcessorBase):
             def __init__(self):
                 self.detector = cv2.QRCodeDetector()
-                self.result_queue = queue.Queue()
 
             def recv(self, frame):
                 img = frame.to_ndarray(format="bgr24")
                 data, _, _ = self.detector.detectAndDecode(img)
                 if data:
-                    self.result_queue.put(data)
+                    result_queue.put(data)
+                    result_event.set()
                 return frame
+
+        def on_qr_detected(qr_data):
+            """Callback wenn QR-Code erkannt wurde."""
+            if "esta" in qr_data.lower():
+                st.session_state.qr_detected = qr_data
+                st.session_state.qr_scanner_active = False
+                st.rerun()
 
         ctx = webrtc_streamer(
             key="qr-scanner",
             mode=WebRtcMode.SENDRECV,
             video_processor_factory=QRVideoProcessor,
-            media_stream_constraints={"video": {"facingMode": "environment"}},
+            media_stream_constraints={"video": {"facingMode": "environment", "width": 640, "height": 480}},
             async_processing=True,
+            desired_playing_state=True,
         )
 
-        if ctx.video_processor:
+        if ctx.state.playing:
+            st.session_state.qr_scanner_active = True
+
+        # Queue kontinuierlich prüfen solange der Scanner aktiv ist
+        if st.session_state.qr_scanner_active:
+            placeholder = st.empty()
+            with placeholder.container():
+                st.info("📷 Suche nach QR-Code...")
+
+            # Nicht-blockierend die Queue prüfen
             try:
-                detected_url = ctx.video_processor.result_queue.get_nowait()
-                if detected_url and "esta" in detected_url.lower():
-                    st.session_state.qr_detected = detected_url
-            except queue.Empty:
+                while True:
+                    try:
+                        qr_data = result_queue.get_nowait()
+                        if qr_data and "esta" in qr_data.lower():
+                            st.session_state.qr_detected = qr_data
+                            st.session_state.qr_scanner_active = False
+                            st.rerun()
+                    except queue.Empty:
+                        break
+            except Exception:
                 pass
 
-        if st.session_state.qr_detected and not st.session_state.qr_processed:
+        if st.session_state.qr_detected:
             st.success(f"QR-Code erkannt: {st.session_state.qr_detected}")
-            if st.button("Ergebnis importieren", type="primary"):
-                success = import_result(st.session_state.qr_detected, username)
-                if success:
-                    st.session_state.qr_processed = True
+            col1, col2 = st.columns([1, 1])
+            with col1:
+                if st.button("Ergebnis importieren", type="primary", use_container_width=True):
+                    success = import_result(st.session_state.qr_detected, username)
+                    if success:
+                        st.session_state.qr_processed = True
+                        st.session_state.qr_detected = None
+                        st.rerun()
+            with col2:
+                if st.button("Neu scannen", type="secondary", use_container_width=True):
                     st.session_state.qr_detected = None
+                    st.session_state.qr_processed = False
                     st.rerun()
 
     except ImportError:
