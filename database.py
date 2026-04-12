@@ -7,6 +7,8 @@ def init_db(db_path: str = "meytapp.db") -> None:
     """Initialize the SQLite database with required tables."""
     conn = sqlite3.connect(db_path)
     cursor = conn.cursor()
+
+    # Create table
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS shootings (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -21,6 +23,13 @@ def init_db(db_path: str = "meytapp.db") -> None:
             created_at TEXT DEFAULT CURRENT_TIMESTAMP
         )
     """)
+
+    # Migration: Add coordinates column if it doesn't exist
+    cursor.execute("PRAGMA table_info(shootings)")
+    columns = [col[1] for col in cursor.fetchall()]
+    if "coordinates" not in columns:
+        cursor.execute("ALTER TABLE shootings ADD COLUMN coordinates TEXT")
+
     conn.commit()
     conn.close()
 
