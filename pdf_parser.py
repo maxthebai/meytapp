@@ -18,7 +18,6 @@ def _extract_arrows(pdf_bytes):
     for page in doc:
         for d in page.get_drawings():
             fill = d.get("fill")
-            # Schwarze gefüllte Shapes = Richtungspfeile
             if not fill or fill[0] > 0.1:
                 continue
 
@@ -26,7 +25,6 @@ def _extract_arrows(pdf_bytes):
             cx = (r.x0 + r.x1) / 2
             cy = (r.y0 + r.y1) / 2
 
-            # Alle Kontrollpunkte der Bezier-Kurven sammeln
             pts = []
             for item in d["items"]:
                 for p in item[1:]:
@@ -36,24 +34,19 @@ def _extract_arrows(pdf_bytes):
             if not pts:
                 continue
 
-            # Pfeilspitze = Punkt mit größtem Abstand vom Mittelpunkt
             tip = max(pts, key=lambda p: (p[0] - cx) ** 2 + (p[1] - cy) ** 2)
 
-            # Winkel berechnen: PDF-Y ist invertiert → -dy
             dx = tip[0] - cx
             dy = -(tip[1] - cy)
-            # Uhrzeiger: 0°=oben (12 Uhr), 90°=rechts, 180°=unten, 270°=links
             angle_clock = (90 - math.degrees(math.atan2(dy, dx))) % 360
 
             arrows.append({"cx": cx, "cy": cy, "angle": angle_clock})
 
-    # Lesereihenfolge: erst nach Y-Reihe (gerundet auf 20px), dann nach X
     arrows.sort(key=lambda s: (round(s["cy"] / 20) * 20, s["cx"]))
     return arrows
 
 
 def process_pdf_bytes(pdf_bytes):
-    # --- Text-Parsing ---
     reader = PyPDF2.PdfReader(BytesIO(pdf_bytes))
     full_text = ""
     for page in reader.pages:
@@ -63,8 +56,6 @@ def process_pdf_bytes(pdf_bytes):
     is_pistole = "Pistole" in full_text or "LP" in full_text
     discipline = "Luftpistole" if is_pistole else "Luftgewehr"
 
-    # Luftgewehr 10m: Ringbreite 2.5mm, Innenzehner-Radius 0.5mm
-    # Luftpistole 10m: Ringbreite 8.0mm, Innenzehner-Radius 5.5mm
     if is_pistole:
         ring_step = 8.0
         inner_radius = 5.5
@@ -114,13 +105,15 @@ def process_pdf_bytes(pdf_bytes):
         ring = rings[i]
         angle_clock = arrows[i]["angle"]
 
-        # Radius: Mitte des zugehörigen Ringbands
-        # Ring 10.9 (Innenzehner) → r ≈ 0, Ring 10.0 → r = inner_radius + 0.5*ring_step
-        radius_mid = max(0.0, (10.9 - ring) * ring_step + inner_radius)
+        ring_int = int(ring)
+        if ring_int >= 10:
+            radius = inner_radius * 0.5
+        else:
+            radius = inner_radius + (10 - ring_int) * ring_step
 
         theta = math.radians(angle_clock)
-        x = round(radius_mid * math.sin(theta), 2)   # sin weil 0°=oben
-        y = round(radius_mid * math.cos(theta), 2)   # cos weil 0°=oben
+        x = round(radius * math.sin(theta), 2)
+        y = round(radius * math.cos(theta), 2)
 
         coordinates.append({"ring": ring, "x": x, "y": y})
 
