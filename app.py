@@ -24,30 +24,31 @@ if st.session_state.get("authentication_status") is not True:
 def render_target(shots, discipline="Luftgewehr"):
     fig, ax = plt.subplots(figsize=(5, 5))
     
-    # Maßstäbe wählen
     if "Pistole" in discipline:
-        radii = {1:77.75, 2:69.75, 3:61.75, 4:53.75, 5:45.75, 6:37.75, 7:29.75, 8:21.75, 9:13.75}
+        radii = {1:77.75, 2:69.75, 3:61.75, 4:53.75, 5:45.75, 6:37.75, 7:29.75, 8:21.75, 9:13.75, 10:5.75}
         spiegel_ab = 7
-        limit = 80
+        limit = 82
     else:
-        radii = {1:22.75, 2:20.25, 3:17.75, 4:15.25, 5:12.75, 6:10.25, 7:7.75, 8:5.25, 9:2.75}
+        radii = {1:22.75, 2:20.25, 3:17.75, 4:15.25, 5:12.75, 6:10.25, 7:7.75, 8:5.25, 9:2.75, 10:0.5}
         spiegel_ab = 4
         limit = 25
-    
-    for r, val in radii.items():
-        is_spiegel = r >= spiegel_ab
-        ax.add_patch(plt.Circle((0,0), val, facecolor='black' if is_spiegel else 'white', 
-                                edgecolor='white' if is_spiegel else 'black', zorder=1))
-    
-    ax.add_patch(plt.Circle((0,0), 0.25 if "Gewehr" in discipline else 5.75, color='white', zorder=2))
+
+    for ring_num in sorted(radii.keys()):
+        val = radii[ring_num]
+        is_black = ring_num >= spiegel_ab and ring_num < 10
+        facecolor = 'black' if is_black else 'white'
+        edgecolor = 'white' if is_black else 'black'
+        ax.add_patch(plt.Circle((0, 0), val, facecolor=facecolor, edgecolor=edgecolor, linewidth=0.5, zorder=ring_num))
 
     for s in shots:
         x, y, ring = s['x'], s['y'], s['ring']
-        c = 'red' if ring >= 10.0 else ('yellow' if ring >= 9.0 else 'black')
-        edge = 'white' if c == 'black' and abs(x) < (radii[spiegel_ab]) else 'black'
-        ax.scatter(x, y, color=c, edgecolors=edge, s=50, alpha=0.9, zorder=5)
+        c = 'red' if ring >= 10.0 else ('yellow' if ring >= 9.0 else ('white' if ring >= spiegel_ab else 'black'))
+        edge = 'black'
+        ax.scatter(x, y, color=c, edgecolors=edge, s=55, linewidths=0.5, alpha=0.95, zorder=20)
 
     ax.set_xlim(-limit, limit); ax.set_ylim(-limit, limit); ax.set_aspect('equal'); ax.axis('off')
+    fig.patch.set_facecolor('#1a1a1a')
+    ax.set_facecolor('#1a1a1a')
     return fig
 
 # --- UI ---
@@ -69,7 +70,8 @@ with t_imp:
         data = process_pdf_bytes(up_pdf.read())
         save_shooting(st.session_state.username, data["date"], data["shooter"], data["discipline"], 
                       data["total_score"], ",".join(map(str, data["series"])), None, json.dumps(data["coordinates"]))
-        st.success(f"Erfolg! {len(data['coordinates'])} Schüsse gefunden."); st.rerun()
+        st.toast(f"✅ Import erfolgreich! {data['shooter']} – {data['total_score']} Ringe ({len(data['coordinates'])} Schüsse)", icon="🎯")
+        st.rerun()
 
 with t_his:
     res = get_all_shootings(st.session_state.username)
