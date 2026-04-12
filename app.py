@@ -1,637 +1,200 @@
 import streamlit as st
-import plotly.express as px
+import pandas as pd
+import json
+import matplotlib.pyplot as plt
+import matplotlib.patches as patches
+import numpy as np
 from datetime import datetime
 
 from database import init_db, save_shooting, get_all_shootings, delete_shooting
 from pdf_parser import process_meyton_url
 from auth import init_auth
 
+# --- NEUE MATPLOTLIB FUNKTION ---
+def create_target_matplotlib(coordinates: list[dict]):
+    """Erstellt eine physikalisch korrekte LG-Scheibe mit Matplotlib."""
+    fig, ax = plt.subplots(figsize=(6, 6))
+    
+    # ISSF Radien für Luftgewehr (in mm)
+    # Ring 1 ist außen (22.75mm), Ring 9 ist innen (2.75mm)
+    # Die 10 ist ein Punkt mit Radius 0.25mm
+    rings = {
+        1: 22.75, 2: 20.25, 3: 17.75, 4: 15.25, 
+        5: 12.75, 6: 10.25, 7: 7.75, 8: 5.25, 9: 2.75
+    }
+    
+    # 1. Hintergrund und Spiegel (Ring 4 bis 9 sind schwarz)
+    for r_num in range(1, 10):
+        radius = rings[r_num]
+        # Spiegel ab Ring 4 schwarz füllen
+        facecolor = 'black' if r_num >= 4 else 'white'
+        edgecolor = 'white' if r_num >= 4 else 'black'
+        
+        circle = plt.Circle((0, 0), radius, edgecolor=edgecolor, facecolor=facecolor, zorder=1)
+        ax.add_patch(circle)
+        
+        # Ringzahlen beschriften
+        text_color = 'white' if r_num >= 4 else 'black'
+        ax.text(0, -radius + 0.5, str(r_num), color=text_color, ha='center', va='bottom', fontsize=8, zorder=2)
 
+    # 2. Die 10 (Zentraler weißer Punkt)
+    center_dot = plt.Circle((0, 0), 0.25, color='white', zorder=2)
+    ax.add_patch(center_dot)
+
+    # 3. Schüsse einzeichnen
+    for shot in coordinates:
+        # Meyton Koordinaten von Hundertstel-mm in mm umrechnen
+        x = shot.get("x", 0) / 100.0
+        y = shot.get("y", 0) / 100.0
+        ring = shot.get("ring", 0)
+
+        # Farbcodierung
+        if ring >= 10.0:
+            shot_color = 'red'
+        elif ring >= 9.0:
+            shot_color = 'yellow'
+        else:
+            shot_color = 'black'
+            # Falls der Schuss im schwarzen Bereich liegt, geben wir ihm einen weißen Rand
+            if abs(x) < 15.25 and abs(y) < 15.25:
+                ax.scatter(x, y, color='black', edgecolors='white', s=50, alpha=0.8, zorder=4)
+                continue
+
+        ax.scatter(x, y, color=shot_color, edgecolors='black', s=60, alpha=0.8, zorder=4)
+
+    # Layout-Einstellungen
+    limit = 25  # mm
+    ax.set_xlim(-limit, limit)
+    ax.set_ylim(-limit, limit)
+    ax.set_aspect('equal')
+    ax.axis('off')
+    fig.patch.set_facecolor('white')
+    plt.tight_layout()
+    
+    return fig
+
+# --- HILFSFUNKTIONEN ---
 def scan_qr_code(img, debug: bool = False):
-    """
-    Scan QR code from image using pyzbar with preprocessing for Moiré reduction.
-    Returns (data, debug_image) tuple. debug_image is None if QR found.
-    """
     import cv2
-    import numpy as np
     from pyzbar.pyzbar import decode
-
     gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
-
-    # Build processing strategies to try in order
     clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8, 8))
     clahe_img = clahe.apply(gray)
     blurred = cv2.GaussianBlur(gray, (5, 5), 0)
-    clahe_blurred = cv2.GaussianBlur(clahe_img, (5, 5), 0)
-
-    processed_images = [
-        gray,         # 1. Original grayscale
-        blurred,      # 2. Light Gaussian blur (reduces Moiré)
-        clahe_blurred # 3. CLAHE + Gaussian blur combined
-    ]
-
-    debug_img = None
+    
+    processed_images = [gray, blurred, clahe.apply(blurred)]
     for processed in processed_images:
         decoded = decode(processed)
         for symbol in decoded:
             data = symbol.data.decode("utf-8")
-            if data:
-                return data, None  # QR found, no debug image needed
-
-    # Nothing worked - show blurred debug image
-    if debug:
-        debug_img = blurred  # Show blurred for user inspection
-
-    return None, debug_img
-
-
-def create_target_figure(coordinates: list[dict], width: int = 450, height: int = 450):
-    """Create a Plotly figure showing a target with shot markers."""
-    import plotly.graph_objects as go
-    import numpy as np
-
-    fig = go.Figure()
-
-    # Draw target rings (10 rings)
-    ring_radius_full = 10.9 * 2.1  # Max radius in mm
-    for i in range(10, 0, -1):
-        ring_r = (11 - i) * 2.1  # Radius of this ring
-        theta = np.linspace(0, 2 * np.pi, 100)
-        x_ring = ring_r * np.cos(theta)
-        y_ring = ring_r * np.sin(theta)
-        color = "black" if i % 2 == 0 else "white"
-        fig.add_trace(go.Scatter(
-            x=x_ring, y=y_ring,
-            mode="lines",
-            line=dict(color=color, width=1),
-            showlegend=False,
-            hoverinfo="skip"
-        ))
-
-    # Draw outer circle
-    theta = np.linspace(0, 2 * np.pi, 100)
-    fig.add_trace(go.Scatter(
-        x=ring_radius_full * np.cos(theta),
-        y=ring_radius_full * np.sin(theta),
-        mode="lines",
-        line=dict(color="black", width=2),
-        showlegend=False,
-        hoverinfo="skip"
-    ))
-
-    # Add ring numbers (1-10) on the rings
-    for i in range(1, 11):
-        ring_r = (11 - i) * 2.1 + (2.1 / 2)  # Middle of each ring
-        # Place number at top of ring (270 degrees)
-        x_text = ring_r * np.cos(np.radians(270))
-        y_text = ring_r * np.sin(np.radians(270))
-        fig.add_trace(go.Scatter(
-            x=[x_text], y=[y_text],
-            mode="text",
-            text=[str(i)],
-            textfont=dict(size=10, color="black"),
-            showlegend=False,
-            hoverinfo="skip"
-        ))
-
-    # Draw shot markers
-    for shot in coordinates:
-        x, y = shot["x"], shot["y"]
-        ring = shot["ring"]
-        if ring >= 10:
-            color = "#FFD700"
-        elif ring >= 9:
-            color = "#4169E1"
-        elif ring >= 8:
-            color = "#000000"
-        elif ring >= 7:
-            color = "#FF0000"
-        else:
-            color = "#FFA500"
-
-        fig.add_trace(go.Scatter(
-            x=[x], y=[y],
-            mode="markers",
-            marker=dict(size=12, color=color, line=dict(color="black", width=1)),
-            text=f"Ring: {ring}<br>Winkel: {shot['angle']:.1f}°",
-            hovertemplate="%{text}<extra></extra>",
-            showlegend=False
-        ))
-
-    # Clean layout - no grid, no axis labels
-    max_range = ring_radius_full * 1.15
-    fig.update_layout(
-        xaxis=dict(
-            range=[-max_range, max_range],
-            scaleanchor="y",
-            scaleratio=1,
-            showgrid=False,
-            showticklabels=False,
-            zeroline=False,
-            visible=False
-        ),
-        yaxis=dict(
-            range=[-max_range, max_range],
-            showgrid=False,
-            showticklabels=False,
-            zeroline=False,
-            visible=False
-        ),
-        width=width,
-        height=height,
-        plot_bgcolor="white",
-        paper_bgcolor="white",
-        margin=dict(l=0, r=0, t=30, b=0),
-    )
-
-    return fig
-
+            if data: return data, None
+    return None, blurred if debug else None
 
 def parse_series_string(series_str: str) -> dict[int, list]:
-    """
-    Parse series string like '10.4,9.5,8.7,7.6,10.1,9.8,8.9,7.5,10.2,9.9'
-    into a dict grouped by series (usually 10 shots per series).
-    Returns: {1: [10.4, 9.5, ...], 2: [10.1, 9.8, ...], ...}
-    """
-    if not series_str:
-        return {}
+    if not series_str: return {}
     try:
         shots = [float(x.strip()) for x in series_str.split(",")]
-    except ValueError:
-        return {}
-
-    # Meyton typically has 10 shots per series
-    shots_per_series = 10
-    series_dict = {}
-    for i in range(0, len(shots), shots_per_series):
-        series_num = i // shots_per_series + 1
-        series_dict[series_num] = shots[i:i + shots_per_series]
-    return series_dict
-
-
-def init_session():
-    """Initialize session state variables."""
-    if "authenticator" not in st.session_state:
-        st.session_state.authenticator = init_auth()
-    # Always run init_db to ensure migrations are applied
-    init_db()
-
+        return {i//10 + 1: shots[i:i+10] for i in range(0, len(shots), 10)}
+    except: return {}
 
 def import_result(url: str, user_id: str):
-    """Process and save a Meyton URL result."""
-    with st.spinner("PDF wird heruntergeladen und verarbeitet..."):
+    with st.spinner("PDF wird verarbeitet..."):
         try:
             data = process_meyton_url(url)
-
             if data["shooter"] and data["total_score"] > 0:
                 series_str = ",".join(str(s) for s in data["series"])
-                coordinates_str = None
-                if "coordinates" in data and data["coordinates"]:
-                    import json
-                    coordinates_str = json.dumps(data["coordinates"])
-                save_shooting(
-                    user_id=user_id,
-                    date=data["date"],
-                    shooter=data["shooter"],
-                    discipline=data["discipline"],
-                    total_score=data["total_score"],
-                    series=series_str,
-                    url=url,
-                    coordinates=coordinates_str
-                )
-                st.session_state.last_saved_coordinates = data.get("coordinates", [])
-                st.session_state.last_saved_shooter = data["shooter"]
-                st.session_state.last_saved_series = series_str
-                st.session_state.last_saved_total = data["total_score"]
-                st.success(f"Ergebnis für {data['shooter']} wurde gespeichert!")
+                coords_str = json.dumps(data.get("coordinates", []))
+                save_shooting(user_id=user_id, date=data["date"], shooter=data["shooter"],
+                              discipline=data["discipline"], total_score=data["total_score"],
+                              series=series_str, url=url, coordinates=coords_str)
+                st.success(f"Ergebnis für {data['shooter']} gespeichert!")
                 st.balloons()
                 return True
-            else:
-                st.warning("PDF gefunden, aber Daten konnten nicht vollständig extrahiert werden.")
-                st.json(data)
-                return False
         except Exception as e:
-            st.error(f"Fehler beim Verarbeiten der URL: {str(e)}")
-            return False
+            st.error(f"Fehler: {str(e)}")
+    return False
 
+# --- APP START ---
+st.set_page_config(page_title="Meytapp", page_icon="🎯", layout="wide")
+init_db()
+if "authenticator" not in st.session_state:
+    st.session_state.authenticator = init_auth()
 
-st.set_page_config(
-    page_title="Meytapp - Schießergebnisse",
-    page_icon="🎯",
-    layout="wide"
-)
-
-init_session()
 authenticator = st.session_state.authenticator
+authenticator.login(location="main")
 
-# ── Authentication ────────────────────────────────────────────────────────────
-
-# Dieser Aufruf erledigt ALLES: Cookie-Check und Formular-Anzeige
-authenticator.login(
-    location="main",
-    max_login_attempts=5,
-    fields={
-        'Form name': 'Anmelden',
-        'Username': 'E-Mail',
-        'Password': 'Passwort',
-        'Login': 'Anmelden',
-    }
-)
-
-auth_status = st.session_state.get("authentication_status")
-
-if auth_status is True:
-    # Eingeloggt - App anzeigen
+if st.session_state.get("authentication_status") is True:
     username = st.session_state.username
-    user_name = st.session_state.name
-
-    st.title(f"🎯 Meytapp - Willkommen, {user_name}!")
-    st.markdown(f"Angemeldet als **{username}**.")
+    st.sidebar.title(f"Hallo, {st.session_state.name}")
     authenticator.logout(location="sidebar")
-    st.divider()
 
-elif auth_status is False:
-    # Login fehlgeschlagen
-    st.error("Benutzername oder Passwort falsch.")
-    tab_login, tab_register = st.tabs(["Anmelden", "Registrieren"])
+    tab_import, tab_history, tab_progress, tab_detail = st.tabs(["📥 Import", "📋 Historie", "📈 Verlauf", "🎯 Detail"])
 
-    with tab_login:
-        st.info("Bitte erneut anmelden.")
-
-    with tab_register:
-        authenticator.register_user(
-            location="main",
-            pre_authorized=None,
-            captcha=False,
-            merge_username_email=True,
-            fields={
-                'Form name': 'Registrieren',
-                'First name': 'Vorname',
-                'Last name': 'Nachname',
-                'Email': 'E-Mail',
-                'Password': 'Passwort',
-                'Repeat password': 'Passwort wiederholen',
-                'Register': 'Account erstellen',
-            }
-        )
-    st.stop()
-
-elif auth_status is None:
-    # Erster Aufruf - Tabs anzeigen
-    tab_login, tab_register = st.tabs(["Anmelden", "Registrieren"])
-
-    with tab_login:
-        st.info("Bitte anmelden oder registrieren.")
-
-    with tab_register:
-        authenticator.register_user(
-            location="main",
-            pre_authorized=None,
-            captcha=False,
-            merge_username_email=True,
-            fields={
-                'Form name': 'Registrieren',
-                'First name': 'Vorname',
-                'Last name': 'Nachname',
-                'Email': 'E-Mail',
-                'Password': 'Passwort',
-                'Repeat password': 'Passwort wiederholen',
-                'Register': 'Account erstellen',
-            }
-        )
-    st.stop()
-
-# ── Main App ─────────────────────────────────────────────────────────────────---
-
-# Hauptnavigation mit Tabs
-tab_import, tab_history, tab_progress, tab_detail = st.tabs([
-    "📥 Import",
-    "📋 Historie",
-    "📈 Verlauf",
-    "🎯 Detail"
-])
-
-with tab_import:
-    st.header("Ergebnis importieren")
-
-    subtab1, subtab2, subtab3 = st.tabs(["📋 URL eingeben", "📷 QR-Code scannen", "📄 PDF hochladen"])
-
-    with subtab1:
-        url_input = st.text_input(
-            "Meyton QR-Code URL",
-            placeholder="https://example.com/esta5/...",
-            help="Füge die URL aus dem Meyton ESTA 5 QR-Code hier ein.",
-            key="url_input"
-        )
-
-        if st.button("Ergebnis importieren", type="primary", width='stretch'):
-            if url_input:
-                import_result(url_input, username)
-            else:
-                st.warning("Bitte eine URL eingeben.")
-
-    with subtab2:
-        st.markdown("""
-            **So funktioniert's:**
-            1. Aktiviere die Kamera mit dem Button unten
-            2. Halte den QR-Code vor die Kamera
-            3. Die URL wird automatisch erkannt und verarbeitet
-        """)
-
-        # Session-State initialisieren
-        if "qr_result" not in st.session_state:
-            st.session_state.qr_result = None
-        if "show_upload" not in st.session_state:
-            st.session_state.show_upload = False
-
-        # Fallback-Upload Button
-        col_cam, col_upload = st.columns([1, 1])
-        with col_cam:
-            if st.button("📷 Kamera starten", width='stretch'):
-                st.session_state.show_upload = False
-        with col_upload:
-            if st.button("📁 Bild hochladen", width='stretch'):
-                st.session_state.show_upload = True
-
-        if st.session_state.show_upload:
-            st.info("Lade ein Bild mit QR-Code hoch")
-            uploaded_file = st.file_uploader(
-                "Bild auswählen", type=["png", "jpg", "jpeg"], key="qr_upload"
-            )
-            if uploaded_file:
-                import cv2
-                import numpy as np
-                file_bytes = np.frombuffer(uploaded_file.read(), dtype=np.uint8)
-                img = cv2.imdecode(file_bytes, cv2.IMREAD_COLOR)
-                data, debug_img = scan_qr_code(img, debug=True)
-                if data and "esta" in data.lower():
-                    st.session_state.qr_result = data
-                elif data:
-                    st.warning(f"QR-Code gefunden, aber kein gültiger Meyton-Code: {data}")
-                else:
-                    st.error("Kein QR-Code im Bild gefunden.")
-                    if debug_img is not None:
-                        st.warning("Debug-Ansicht (CLAHE-verarbeitet):")
-                        st.image(debug_img, channels="GRAY")
-
-        else:
-            try:
-                from streamlit_webrtc import webrtc_streamer, WebRtcMode
-                from streamlit_webrtc.models import VideoProcessorBase
-                import cv2
-                import queue
-
-                if "qr_queue" not in st.session_state:
-                    st.session_state.qr_queue = queue.Queue()
-
-                class QRVideoProcessor(VideoProcessorBase):
-                    def recv(self, frame):
-                        img = frame.to_ndarray(format="bgr24")
-                        data, _ = scan_qr_code(img, debug=False)
-                        if data and "esta" in data.lower():
-                            st.session_state.qr_queue.put(data)
-                        return frame
-
-                ctx = webrtc_streamer(
-                    key="qr-scanner",
-                    mode=WebRtcMode.SENDRECV,
-                    video_processor_factory=QRVideoProcessor,
-                    media_stream_constraints={"video": {"facingMode": "environment"}},
-                    async_processing=True,
-                )
-
-                if ctx.state.playing:
-                    st.info("📷 Suche nach QR-Code... Halte ihn vor die Kamera")
-
-                # Nicht-blockierend Queue prüfen (kein while True!)
-                if not st.session_state.qr_queue.empty():
-                    try:
-                        qr_data = st.session_state.qr_queue.get_nowait()
-                        st.session_state.qr_result = qr_data
-                        st.session_state.qr_queue = queue.Queue()  # Reset queue
-                    except queue.Empty:
-                        pass
-
-            except ImportError:
-                st.error("Kamera-Bibliothek nicht verfügbar. Bitte nutze 'Bild hochladen'.")
-
-        # Ergebnis-Anzeige (funktioniert für beide Methoden)
-        if st.session_state.qr_result:
-            st.success(f"QR-Code erkannt: {st.session_state.qr_result}")
-            c1, c2 = st.columns([1, 1])
-            with c1:
-                if st.button("Ergebnis importieren", type="primary", width='stretch'):
-                    success = import_result(st.session_state.qr_result, username)
-                    if success:
-                        st.session_state.qr_result = None
-                        st.rerun()
-            with c2:
-                if st.button("Neu scannen", type="secondary", width='stretch'):
-                    st.session_state.qr_result = None
-                    st.rerun()
-
-    with subtab3:
-        st.markdown("""
-            **Direkt-PDF-Upload:**
-            Lade eine Meyton PDF-Datei hoch, die du bereits auf deinem Gerät gespeichert hast.
-        """)
-        uploaded_pdf = st.file_uploader(
-            "PDF-Datei auswählen",
-            type=["pdf"],
-            key="pdf_upload"
-        )
+    # --- TAB IMPORT ---
+    with tab_import:
+        st.header("Ergebnis hinzufügen")
+        url_input = st.text_input("Meyton URL")
+        if st.button("URL Importieren"):
+            if url_input: import_result(url_input, username)
+        
+        st.divider()
+        uploaded_pdf = st.file_uploader("Oder PDF hochladen", type=["pdf"])
         if uploaded_pdf:
-            with st.spinner("PDF wird verarbeitet..."):
-                try:
-                    from pdf_parser import process_pdf_bytes
-                    pdf_bytes = uploaded_pdf.read()
-                    data = process_pdf_bytes(pdf_bytes)
-                    if data["shooter"] and data["total_score"] > 0:
-                        series_str = ",".join(str(s) for s in data["series"])
-                        import json
-                        coordinates_str = None
-                        if "coordinates" in data and data["coordinates"]:
-                            coordinates_str = json.dumps(data["coordinates"])
-                        save_shooting(
-                            user_id=username,
-                            date=data["date"],
-                            shooter=data["shooter"],
-                            discipline=data["discipline"],
-                            total_score=data["total_score"],
-                            series=series_str,
-                            url=None,
-                            coordinates=coordinates_str
-                        )
-                        st.session_state.last_saved_coordinates = data.get("coordinates", [])
-                        st.session_state.last_saved_shooter = data["shooter"]
-                        st.session_state.last_saved_series = series_str
-                        st.session_state.last_saved_total = data["total_score"]
-                        st.success(f"Ergebnis für {data['shooter']} wurde gespeichert!")
-                        st.balloons()
-                    else:
-                        st.warning("PDF gefunden, aber Daten konnten nicht vollständig extrahiert werden.")
-                        st.json(data)
-                except Exception as e:
-                    st.error(f"Fehler beim Verarbeiten der PDF: {str(e)}")
+            from pdf_parser import process_pdf_bytes
+            data = process_pdf_bytes(uploaded_pdf.read())
+            save_shooting(user_id=username, date=data["date"], shooter=data["shooter"],
+                          discipline=data["discipline"], total_score=data["total_score"],
+                          series=",".join(str(s) for s in data["series"]), 
+                          url=None, coordinates=json.dumps(data.get("coordinates", [])))
+            st.success("PDF erfolgreich importiert!")
 
-with tab_history:
-    st.header("Schießhistorie")
-
-    shootings = get_all_shootings(user_id=username)
-
-    if shootings:
-        import pandas as pd
-        import json
-
-        df = pd.DataFrame(
-            shootings,
-            columns=["ID", "Benutzer", "Datum", "Schütze", "Disziplin", "Gesamt", "Serien", "URL", "Koordinaten", "Erstellt"]
-        )
-
-        # Auswahl für Detail-Ansicht
-        col_show, col_del = st.columns([4, 1])
-        with col_show:
-            st.markdown("**Ergebnis auswählen:**")
-            options = {
-                row["ID"]: f"{row['Datum']} — {row['Schütze']} ({row['Disziplin']}) — {row['Gesamt']} Ringe"
-                for _, row in df.iterrows()
-            }
-            selected_id = st.selectbox(
-                "Ergebnis",
-                options=list(options.keys()),
-                format_func=lambda x: options[x],
-                label_visibility="collapsed",
-                key="selected_shooting_id"
-            )
-        with col_del:
-            st.markdown("### Löschen")
-            delete_id = st.number_input(
-                "ID",
-                min_value=1,
-                max_value=int(df["ID"].max()) if len(df) > 0 else 1,
-                step=1,
-                key="delete_id"
-            )
-            if st.button("Löschen", type="secondary"):
-                delete_shooting(int(delete_id), username)
+    # --- TAB HISTORIE ---
+    with tab_history:
+        shootings = get_all_shootings(user_id=username)
+        if shootings:
+            df = pd.DataFrame(shootings, columns=["ID", "User", "Datum", "Schütze", "Disziplin", "Gesamt", "Serien", "URL", "Coords", "Erstellt"])
+            st.dataframe(df[["ID", "Datum", "Schütze", "Gesamt", "Disziplin"]], hide_index=True)
+            del_id = st.number_input("ID zum Löschen", min_value=1, step=1)
+            if st.button("Eintrag löschen"):
+                delete_shooting(del_id, username)
                 st.rerun()
 
-        # Speichere Auswahl für Detail-Tab
-        if selected_id:
-            st.session_state.selected_id = selected_id
-            st.info("Wechsle zum Tab '🎯 Detail' um die Scheibe und Serien zu sehen.")
-    else:
-        st.info("Noch keine Schießergebnisse gespeichert. Importiere ein Ergebnis über den Tab '📥 Import'.")
+    # --- TAB VERLAUF ---
+    with tab_progress:
+        shootings = get_all_shootings(user_id=username)
+        if len(shootings) >= 2:
+            import plotly.express as px
+            df = pd.DataFrame(shootings, columns=["ID", "User", "Datum", "Schütze", "Disziplin", "Gesamt", "Serien", "URL", "Coords", "Erstellt"])
+            df["Datum"] = pd.to_datetime(df["Datum"])
+            fig = px.line(df.sort_values("Datum"), x="Datum", y="Gesamt", markers=True, title="Leistungskurve")
+            st.plotly_chart(fig, use_container_width=True)
 
-with tab_progress:
-    st.header("Entwicklung der Ringzahl")
+    # --- TAB DETAIL ---
+    with tab_detail:
+        shootings = get_all_shootings(user_id=username)
+        if shootings:
+            options = {s[0]: f"{s[2]} - {s[3]} ({s[5]} Ringe)" for s in shootings}
+            selected_id = st.selectbox("Ergebnis wählen", options.keys(), format_func=lambda x: options[x])
+            
+            res = next(s for s in shootings if s[0] == selected_id)
+            coords = json.loads(res[8]) if res[8] else []
+            
+            col1, col2 = st.columns([2, 1])
+            with col1:
+                if coords:
+                    st.pyplot(create_target_matplotlib(coords))
+                else:
+                    st.info("Keine Grafikdaten verfügbar.")
+            with col2:
+                st.metric("Gesamt", f"{res[5]} Ringe")
+                st.write(f"**Schütze:** {res[3]}")
+                st.write(f"**Datum:** {res[2]}")
+                st.write(f"**Disziplin:** {res[4]}")
+                
+                st.markdown("### Serien")
+                s_dict = parse_series_string(res[6])
+                for s_num, s_val in s_dict.items():
+                    st.write(f"**S{s_num}:** {sum(s_val):.1f} ({', '.join(map(str, s_val))})")
 
-    shootings = get_all_shootings(user_id=username)
-
-    if shootings and len(shootings) >= 2:
-        import pandas as pd
-
-        df = pd.DataFrame(
-            shootings,
-            columns=["ID", "Benutzer", "Datum", "Schütze", "Disziplin", "Gesamt", "Serien", "URL", "Koordinaten", "Erstellt"]
-        )
-        df_chart = df.copy()
-        df_chart["Datum"] = pd.to_datetime(df_chart["Datum"], errors="coerce")
-        df_chart = df_chart.sort_values("Datum")
-        fig = px.line(
-            df_chart, x="Datum", y="Gesamt", color="Schütze",
-            markers=True, title="Gesamtringzahl über die Zeit"
-        )
-        fig.update_layout(xaxis_title="Datum", yaxis_title="Ringe", legend_title="Schütze", height=500)
-        st.plotly_chart(fig, width='stretch')
-    elif shootings:
-        st.info("Mindestens 2 Ergebnisse werden benötigt, um den Verlauf anzuzeigen.")
-    else:
-        st.info("Noch keine Schießergebnisse gespeichert.")
-
-with tab_detail:
-    st.header("Detail-Ansicht")
-
-    shootings = get_all_shootings(user_id=username)
-
-    if shootings:
-        import pandas as pd
-        import json
-
-        df = pd.DataFrame(
-            shootings,
-            columns=["ID", "Benutzer", "Datum", "Schütze", "Disziplin", "Gesamt", "Serien", "URL", "Koordinaten", "Erstellt"]
-        )
-
-        # Verwende gespeicherte Auswahl oder默认值
-        default_id = st.session_state.get("selected_id", df.iloc[0]["ID"] if len(df) > 0 else None)
-
-        options = {
-            row["ID"]: f"{row['Datum']} — {row['Schütze']} ({row['Disziplin']}) — {row['Gesamt']} Ringe"
-            for _, row in df.iterrows()
-        }
-        selected_id = st.selectbox(
-            "Ergebnis auswählen",
-            options=list(options.keys()),
-            format_func=lambda x: options[x],
-            index=list(options.keys()).index(default_id) if default_id in options else 0,
-            key="detail_shooting_id"
-        )
-
-        if selected_id:
-            selected_row = df[df["ID"] == selected_id].iloc[0]
-            coords_json = selected_row["Koordinaten"]
-            series_str = selected_row["Serien"]
-
-            # Koordinaten parsen
-            coords = None
-            if coords_json:
-                try:
-                    coords = json.loads(coords_json)
-                except json.JSONDecodeError:
-                    coords = None
-
-            # Header mit Info
-            st.subheader(f"{selected_row['Schütze']} — {selected_row['Datum']}")
-            st.markdown(f"**Disziplin:** {selected_row['Disziplin']}  |  **Gesamt:** {selected_row['Gesamt']} Ringe")
-            st.divider()
-
-            # Große Scheibe
-            if coords:
-                st.plotly_chart(
-                    create_target_figure(coords, width=600, height=600),
-                    width='stretch'
-                )
-            else:
-                st.info("Keine Koordinaten-Daten verfügbar")
-
-            st.divider()
-
-            # Serien-Tabelle
-            st.markdown("#### Serien")
-            series_dict = parse_series_string(series_str) if series_str else {}
-            if series_dict:
-                series_data = []
-                for ser_num, shots in series_dict.items():
-                    series_data.append({
-                        "Serie": ser_num,
-                        "Schüsse": " / ".join(str(s) for s in shots),
-                        "Summe": sum(shots)
-                    })
-                series_df = pd.DataFrame(series_data)
-                st.dataframe(
-                    series_df,
-                    hide_index=True,
-                    column_config={
-                        "Serie": st.column_config.NumberColumn("Serie", width="small"),
-                        "Schüsse": st.column_config.TextColumn("Schüsse (Ringwerte)", width="medium"),
-                        "Summe": st.column_config.NumberColumn("Summe", width="small")
-                    }
-                )
-                st.markdown(f"**Gesamt: {selected_row['Gesamt']} Ringe**")
-            else:
-                st.info("Serien-Daten nicht verfügbar")
-    else:
-        st.info("Noch keine Schießergebnisse gespeichert. Importiere ein Ergebnis über den Tab '📥 Import'.")
-
-
+elif st.session_state.get("authentication_status") is False:
+    st.error("Login fehlgeschlagen.")
