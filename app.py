@@ -226,9 +226,17 @@ authenticator = st.session_state.authenticator
 
 # ── Authentication ────────────────────────────────────────────────────────────
 
-# Login / Register tabs - only shown when not authenticated
+# Prüfe Cookie-Authentifizierung VOR dem Login-Formular
 auth_status = st.session_state.get("authentication_status")
+
+# Login / Register tabs - only shown when not authenticated
 if auth_status is None or auth_status is False:
+    # Cookie-basierte Authentifizierung prüfen
+    cookie_result = authenticator.login(location="unrendered")
+    if cookie_result:
+        st.session_state.name, st.session_state.authentication_status, st.session_state.username = cookie_result
+        st.rerun()
+
     tab_login, tab_register = st.columns(2)
 
     with tab_login:
