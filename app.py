@@ -226,44 +226,41 @@ authenticator = st.session_state.authenticator
 
 # ── Authentication ────────────────────────────────────────────────────────────
 
-# Login / Register tabs - only shown when not authenticated
-if not st.session_state.get("authentication_status"):
+# Dieser Aufruf erledigt ALLES: Cookie-Check und Formular-Anzeige
+authenticator.login(
+    location="main",
+    max_login_attempts=5,
+    fields={
+        'Form name': 'Anmelden',
+        'Username': 'E-Mail',
+        'Password': 'Passwort',
+        'Login': 'Anmelden',
+    }
+)
+
+# Zeige Tabs nur wenn nicht authentifiziert
+if st.session_state.get("authentication_status") is None:
     tab_login, tab_register = st.tabs(["Anmelden", "Registrieren"])
 
     with tab_login:
-        authenticator.login(
-            location="main",
-            max_login_attempts=5,
-            fields={
-                'Form name': 'Anmelden',
-                'Username': 'E-Mail',
-                'Password': 'Passwort',
-                'Login': 'Anmelden',
-            }
-        )
+        st.info("Bitte anmelden oder registrieren.")
 
     with tab_register:
-        st.subheader("Neuen Account erstellen")
-        try:
-            authenticator.register_user(
-                location="main",
-                pre_authorized=None,
-                captcha=False,
-                merge_username_email=True,
-                fields={
-                    'Form name': 'Registrieren',
-                    'First name': 'Vorname',
-                    'Last name': 'Nachname',
-                    'Email': 'E-Mail',
-                    'Password': 'Passwort',
-                    'Repeat password': 'Passwort wiederholen',
-                    'Register': 'Account erstellen',
-                }
-            )
-        except Exception as e:
-            st.error(f"Fehler: {e}")
-
-    st.stop()
+        authenticator.register_user(
+            location="main",
+            pre_authorized=None,
+            captcha=False,
+            merge_username_email=True,
+            fields={
+                'Form name': 'Registrieren',
+                'First name': 'Vorname',
+                'Last name': 'Nachname',
+                'Email': 'E-Mail',
+                'Password': 'Passwort',
+                'Repeat password': 'Passwort wiederholen',
+                'Register': 'Account erstellen',
+            }
+        )
 
 # Logged-in state
 username = st.session_state.username
