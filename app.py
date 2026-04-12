@@ -301,245 +301,316 @@ elif auth_status is None:
         )
     st.stop()
 
-# ── Main App ───────────────────────────────────────────────────────────────────
+# ── Main App ─────────────────────────────────────────────────────────────────---
 
-# Import Section with Tabs
-st.header("Ergebnis importieren")
+# Hauptnavigation mit Tabs
+tab_import, tab_history, tab_progress, tab_detail = st.tabs([
+    "📥 Import",
+    "📋 Historie",
+    "📈 Verlauf",
+    "🎯 Detail"
+])
 
-tab1, tab2, tab3 = st.tabs(["📋 URL eingeben", "📷 QR-Code scannen", "📄 PDF hochladen"])
+with tab_import:
+    st.header("Ergebnis importieren")
 
-with tab1:
-    url_input = st.text_input(
-        "Meyton QR-Code URL",
-        placeholder="https://example.com/esta5/...",
-        help="Füge die URL aus dem Meyton ESTA 5 QR-Code hier ein.",
-        key="url_input"
-    )
+    subtab1, subtab2, subtab3 = st.tabs(["📋 URL eingeben", "📷 QR-Code scannen", "📄 PDF hochladen"])
 
-    if st.button("Ergebnis importieren", type="primary", width='stretch'):
-        if url_input:
-            import_result(url_input, username)
-        else:
-            st.warning("Bitte eine URL eingeben.")
-
-with tab2:
-    st.markdown("""
-        **So funktioniert's:**
-        1. Aktiviere die Kamera mit dem Button unten
-        2. Halte den QR-Code vor die Kamera
-        3. Die URL wird automatisch erkannt und verarbeitet
-    """)
-
-    # Session-State initialisieren
-    if "qr_result" not in st.session_state:
-        st.session_state.qr_result = None
-    if "show_upload" not in st.session_state:
-        st.session_state.show_upload = False
-
-    # Fallback-Upload Button
-    col_cam, col_upload = st.columns([1, 1])
-    with col_cam:
-        if st.button("📷 Kamera starten", width='stretch'):
-            st.session_state.show_upload = False
-    with col_upload:
-        if st.button("📁 Bild hochladen", width='stretch'):
-            st.session_state.show_upload = True
-
-    if st.session_state.show_upload:
-        st.info("Lade ein Bild mit QR-Code hoch")
-        uploaded_file = st.file_uploader(
-            "Bild auswählen", type=["png", "jpg", "jpeg"], key="qr_upload"
+    with subtab1:
+        url_input = st.text_input(
+            "Meyton QR-Code URL",
+            placeholder="https://example.com/esta5/...",
+            help="Füge die URL aus dem Meyton ESTA 5 QR-Code hier ein.",
+            key="url_input"
         )
-        if uploaded_file:
-            import cv2
-            import numpy as np
-            file_bytes = np.frombuffer(uploaded_file.read(), dtype=np.uint8)
-            img = cv2.imdecode(file_bytes, cv2.IMREAD_COLOR)
-            data, debug_img = scan_qr_code(img, debug=True)
-            if data and "esta" in data.lower():
-                st.session_state.qr_result = data
-            elif data:
-                st.warning(f"QR-Code gefunden, aber kein gültiger Meyton-Code: {data}")
+
+        if st.button("Ergebnis importieren", type="primary", width='stretch'):
+            if url_input:
+                import_result(url_input, username)
             else:
-                st.error("Kein QR-Code im Bild gefunden.")
-                if debug_img is not None:
-                    st.warning("Debug-Ansicht (CLAHE-verarbeitet):")
-                    st.image(debug_img, channels="GRAY")
+                st.warning("Bitte eine URL eingeben.")
 
-    else:
-        try:
-            from streamlit_webrtc import webrtc_streamer, WebRtcMode
-            from streamlit_webrtc.models import VideoProcessorBase
-            import cv2
-            import queue
+    with subtab2:
+        st.markdown("""
+            **So funktioniert's:**
+            1. Aktiviere die Kamera mit dem Button unten
+            2. Halte den QR-Code vor die Kamera
+            3. Die URL wird automatisch erkannt und verarbeitet
+        """)
 
-            if "qr_queue" not in st.session_state:
-                st.session_state.qr_queue = queue.Queue()
+        # Session-State initialisieren
+        if "qr_result" not in st.session_state:
+            st.session_state.qr_result = None
+        if "show_upload" not in st.session_state:
+            st.session_state.show_upload = False
 
-            class QRVideoProcessor(VideoProcessorBase):
-                def recv(self, frame):
-                    img = frame.to_ndarray(format="bgr24")
-                    data, _ = scan_qr_code(img, debug=False)
-                    if data and "esta" in data.lower():
-                        st.session_state.qr_queue.put(data)
-                    return frame
+        # Fallback-Upload Button
+        col_cam, col_upload = st.columns([1, 1])
+        with col_cam:
+            if st.button("📷 Kamera starten", width='stretch'):
+                st.session_state.show_upload = False
+        with col_upload:
+            if st.button("📁 Bild hochladen", width='stretch'):
+                st.session_state.show_upload = True
 
-            ctx = webrtc_streamer(
-                key="qr-scanner",
-                mode=WebRtcMode.SENDRECV,
-                video_processor_factory=QRVideoProcessor,
-                media_stream_constraints={"video": {"facingMode": "environment"}},
-                async_processing=True,
+        if st.session_state.show_upload:
+            st.info("Lade ein Bild mit QR-Code hoch")
+            uploaded_file = st.file_uploader(
+                "Bild auswählen", type=["png", "jpg", "jpeg"], key="qr_upload"
             )
+            if uploaded_file:
+                import cv2
+                import numpy as np
+                file_bytes = np.frombuffer(uploaded_file.read(), dtype=np.uint8)
+                img = cv2.imdecode(file_bytes, cv2.IMREAD_COLOR)
+                data, debug_img = scan_qr_code(img, debug=True)
+                if data and "esta" in data.lower():
+                    st.session_state.qr_result = data
+                elif data:
+                    st.warning(f"QR-Code gefunden, aber kein gültiger Meyton-Code: {data}")
+                else:
+                    st.error("Kein QR-Code im Bild gefunden.")
+                    if debug_img is not None:
+                        st.warning("Debug-Ansicht (CLAHE-verarbeitet):")
+                        st.image(debug_img, channels="GRAY")
 
-            if ctx.state.playing:
-                st.info("📷 Suche nach QR-Code... Halte ihn vor die Kamera")
+        else:
+            try:
+                from streamlit_webrtc import webrtc_streamer, WebRtcMode
+                from streamlit_webrtc.models import VideoProcessorBase
+                import cv2
+                import queue
 
-            # Nicht-blockierend Queue prüfen (kein while True!)
-            if not st.session_state.qr_queue.empty():
-                try:
-                    qr_data = st.session_state.qr_queue.get_nowait()
-                    st.session_state.qr_result = qr_data
-                    st.session_state.qr_queue = queue.Queue()  # Reset queue
-                except queue.Empty:
-                    pass
+                if "qr_queue" not in st.session_state:
+                    st.session_state.qr_queue = queue.Queue()
 
-        except ImportError:
-            st.error("Kamera-Bibliothek nicht verfügbar. Bitte nutze 'Bild hochladen'.")
+                class QRVideoProcessor(VideoProcessorBase):
+                    def recv(self, frame):
+                        img = frame.to_ndarray(format="bgr24")
+                        data, _ = scan_qr_code(img, debug=False)
+                        if data and "esta" in data.lower():
+                            st.session_state.qr_queue.put(data)
+                        return frame
 
-    # Ergebnis-Anzeige (funktioniert für beide Methoden)
-    if st.session_state.qr_result:
-        st.success(f"QR-Code erkannt: {st.session_state.qr_result}")
-        c1, c2 = st.columns([1, 1])
-        with c1:
-            if st.button("Ergebnis importieren", type="primary", width='stretch'):
-                success = import_result(st.session_state.qr_result, username)
-                if success:
+                ctx = webrtc_streamer(
+                    key="qr-scanner",
+                    mode=WebRtcMode.SENDRECV,
+                    video_processor_factory=QRVideoProcessor,
+                    media_stream_constraints={"video": {"facingMode": "environment"}},
+                    async_processing=True,
+                )
+
+                if ctx.state.playing:
+                    st.info("📷 Suche nach QR-Code... Halte ihn vor die Kamera")
+
+                # Nicht-blockierend Queue prüfen (kein while True!)
+                if not st.session_state.qr_queue.empty():
+                    try:
+                        qr_data = st.session_state.qr_queue.get_nowait()
+                        st.session_state.qr_result = qr_data
+                        st.session_state.qr_queue = queue.Queue()  # Reset queue
+                    except queue.Empty:
+                        pass
+
+            except ImportError:
+                st.error("Kamera-Bibliothek nicht verfügbar. Bitte nutze 'Bild hochladen'.")
+
+        # Ergebnis-Anzeige (funktioniert für beide Methoden)
+        if st.session_state.qr_result:
+            st.success(f"QR-Code erkannt: {st.session_state.qr_result}")
+            c1, c2 = st.columns([1, 1])
+            with c1:
+                if st.button("Ergebnis importieren", type="primary", width='stretch'):
+                    success = import_result(st.session_state.qr_result, username)
+                    if success:
+                        st.session_state.qr_result = None
+                        st.rerun()
+            with c2:
+                if st.button("Neu scannen", type="secondary", width='stretch'):
                     st.session_state.qr_result = None
                     st.rerun()
-        with c2:
-            if st.button("Neu scannen", type="secondary", width='stretch'):
-                st.session_state.qr_result = None
+
+    with subtab3:
+        st.markdown("""
+            **Direkt-PDF-Upload:**
+            Lade eine Meyton PDF-Datei hoch, die du bereits auf deinem Gerät gespeichert hast.
+        """)
+        uploaded_pdf = st.file_uploader(
+            "PDF-Datei auswählen",
+            type=["pdf"],
+            key="pdf_upload"
+        )
+        if uploaded_pdf:
+            with st.spinner("PDF wird verarbeitet..."):
+                try:
+                    from pdf_parser import process_pdf_bytes
+                    pdf_bytes = uploaded_pdf.read()
+                    data = process_pdf_bytes(pdf_bytes)
+                    if data["shooter"] and data["total_score"] > 0:
+                        series_str = ",".join(str(s) for s in data["series"])
+                        import json
+                        coordinates_str = None
+                        if "coordinates" in data and data["coordinates"]:
+                            coordinates_str = json.dumps(data["coordinates"])
+                        save_shooting(
+                            user_id=username,
+                            date=data["date"],
+                            shooter=data["shooter"],
+                            discipline=data["discipline"],
+                            total_score=data["total_score"],
+                            series=series_str,
+                            url=None,
+                            coordinates=coordinates_str
+                        )
+                        st.session_state.last_saved_coordinates = data.get("coordinates", [])
+                        st.session_state.last_saved_shooter = data["shooter"]
+                        st.session_state.last_saved_series = series_str
+                        st.session_state.last_saved_total = data["total_score"]
+                        st.success(f"Ergebnis für {data['shooter']} wurde gespeichert!")
+                        st.balloons()
+                    else:
+                        st.warning("PDF gefunden, aber Daten konnten nicht vollständig extrahiert werden.")
+                        st.json(data)
+                except Exception as e:
+                    st.error(f"Fehler beim Verarbeiten der PDF: {str(e)}")
+
+with tab_history:
+    st.header("Schießhistorie")
+
+    shootings = get_all_shootings(user_id=username)
+
+    if shootings:
+        import pandas as pd
+        import json
+
+        df = pd.DataFrame(
+            shootings,
+            columns=["ID", "Benutzer", "Datum", "Schütze", "Disziplin", "Gesamt", "Serien", "URL", "Koordinaten", "Erstellt"]
+        )
+
+        # Auswahl für Detail-Ansicht
+        col_show, col_del = st.columns([4, 1])
+        with col_show:
+            st.markdown("**Ergebnis auswählen:**")
+            options = {
+                row["ID"]: f"{row['Datum']} — {row['Schütze']} ({row['Disziplin']}) — {row['Gesamt']} Ringe"
+                for _, row in df.iterrows()
+            }
+            selected_id = st.selectbox(
+                "Ergebnis",
+                options=list(options.keys()),
+                format_func=lambda x: options[x],
+                label_visibility="collapsed",
+                key="selected_shooting_id"
+            )
+        with col_del:
+            st.markdown("### Löschen")
+            delete_id = st.number_input(
+                "ID",
+                min_value=1,
+                max_value=int(df["ID"].max()) if len(df) > 0 else 1,
+                step=1,
+                key="delete_id"
+            )
+            if st.button("Löschen", type="secondary"):
+                delete_shooting(int(delete_id), username)
                 st.rerun()
 
-with tab3:
-    st.markdown("""
-        **Direkt-PDF-Upload:**
-        Lade eine Meyton PDF-Datei hoch, die du bereits auf deinem Gerät gespeichert hast.
-    """)
-    uploaded_pdf = st.file_uploader(
-        "PDF-Datei auswählen",
-        type=["pdf"],
-        key="pdf_upload"
-    )
-    if uploaded_pdf:
-        with st.spinner("PDF wird verarbeitet..."):
-            try:
-                from pdf_parser import process_pdf_bytes
-                pdf_bytes = uploaded_pdf.read()
-                data = process_pdf_bytes(pdf_bytes)
-                if data["shooter"] and data["total_score"] > 0:
-                    series_str = ",".join(str(s) for s in data["series"])
-                    import json
-                    coordinates_str = None
-                    if "coordinates" in data and data["coordinates"]:
-                        coordinates_str = json.dumps(data["coordinates"])
-                    save_shooting(
-                        user_id=username,
-                        date=data["date"],
-                        shooter=data["shooter"],
-                        discipline=data["discipline"],
-                        total_score=data["total_score"],
-                        series=series_str,
-                        url=None,
-                        coordinates=coordinates_str
-                    )
-                    st.session_state.last_saved_coordinates = data.get("coordinates", [])
-                    st.session_state.last_saved_shooter = data["shooter"]
-                    st.session_state.last_saved_series = series_str
-                    st.session_state.last_saved_total = data["total_score"]
-                    st.success(f"Ergebnis für {data['shooter']} wurde gespeichert!")
-                    st.balloons()
-                else:
-                    st.warning("PDF gefunden, aber Daten konnten nicht vollständig extrahiert werden.")
-                    st.json(data)
-            except Exception as e:
-                st.error(f"Fehler beim Verarbeiten der PDF: {str(e)}")
+        # Speichere Auswahl für Detail-Tab
+        if selected_id:
+            st.session_state.selected_id = selected_id
+            st.info("Wechsle zum Tab '🎯 Detail' um die Scheibe und Serien zu sehen.")
+    else:
+        st.info("Noch keine Schießergebnisse gespeichert. Importiere ein Ergebnis über den Tab '📥 Import'.")
 
-# Display all shootings for this user
-st.header("Schießhistorie")
+with tab_progress:
+    st.header("Entwicklung der Ringzahl")
 
-shootings = get_all_shootings(user_id=username)
+    shootings = get_all_shootings(user_id=username)
 
-if shootings:
-    import pandas as pd
-    import json
+    if shootings and len(shootings) >= 2:
+        import pandas as pd
 
-    df = pd.DataFrame(
-        shootings,
-        columns=["ID", "Benutzer", "Datum", "Schütze", "Disziplin", "Gesamt", "Serien", "URL", "Koordinaten", "Erstellt"]
-    )
+        df = pd.DataFrame(
+            shootings,
+            columns=["ID", "Benutzer", "Datum", "Schütze", "Disziplin", "Gesamt", "Serien", "URL", "Koordinaten", "Erstellt"]
+        )
+        df_chart = df.copy()
+        df_chart["Datum"] = pd.to_datetime(df_chart["Datum"], errors="coerce")
+        df_chart = df_chart.sort_values("Datum")
+        fig = px.line(
+            df_chart, x="Datum", y="Gesamt", color="Schütze",
+            markers=True, title="Gesamtringzahl über die Zeit"
+        )
+        fig.update_layout(xaxis_title="Datum", yaxis_title="Ringe", legend_title="Schütze", height=500)
+        st.plotly_chart(fig, width='stretch')
+    elif shootings:
+        st.info("Mindestens 2 Ergebnisse werden benötigt, um den Verlauf anzuzeigen.")
+    else:
+        st.info("Noch keine Schießergebnisse gespeichert.")
 
-    # Auswahl für Detail-Ansicht
-    col_show, col_del = st.columns([4, 1])
-    with col_show:
-        st.markdown("**Ergebnis auswählen:**")
-        # Erstelle Auswahl-Optionen mit Datum, Schütze und Gesamt
+with tab_detail:
+    st.header("Detail-Ansicht")
+
+    shootings = get_all_shootings(user_id=username)
+
+    if shootings:
+        import pandas as pd
+        import json
+
+        df = pd.DataFrame(
+            shootings,
+            columns=["ID", "Benutzer", "Datum", "Schütze", "Disziplin", "Gesamt", "Serien", "URL", "Koordinaten", "Erstellt"]
+        )
+
+        # Verwende gespeicherte Auswahl oder默认值
+        default_id = st.session_state.get("selected_id", df.iloc[0]["ID"] if len(df) > 0 else None)
+
         options = {
             row["ID"]: f"{row['Datum']} — {row['Schütze']} ({row['Disziplin']}) — {row['Gesamt']} Ringe"
             for _, row in df.iterrows()
         }
         selected_id = st.selectbox(
-            "Ergebnis",
+            "Ergebnis auswählen",
             options=list(options.keys()),
             format_func=lambda x: options[x],
-            label_visibility="collapsed",
-            key="selected_shooting_id"
+            index=list(options.keys()).index(default_id) if default_id in options else 0,
+            key="detail_shooting_id"
         )
-    with col_del:
-        st.markdown("### Löschen")
-        delete_id = st.number_input(
-            "ID",
-            min_value=1,
-            max_value=int(df["ID"].max()) if len(df) > 0 else 1,
-            step=1,
-            key="delete_id"
-        )
-        if st.button("Löschen", type="secondary"):
-            delete_shooting(int(delete_id), username)
-            st.rerun()
 
-    # Detail-Ansicht für ausgewähltes Ergebnis
-    if selected_id:
-        selected_row = df[df["ID"] == selected_id].iloc[0]
-        coords_json = selected_row["Koordinaten"]
-        series_str = selected_row["Serien"]
+        if selected_id:
+            selected_row = df[df["ID"] == selected_id].iloc[0]
+            coords_json = selected_row["Koordinaten"]
+            series_str = selected_row["Serien"]
 
-        # Koordinaten parsen
-        coords = None
-        if coords_json:
-            try:
-                coords = json.loads(coords_json)
-            except json.JSONDecodeError:
-                coords = None
+            # Koordinaten parsen
+            coords = None
+            if coords_json:
+                try:
+                    coords = json.loads(coords_json)
+                except json.JSONDecodeError:
+                    coords = None
 
-        with st.expander(f"📊 Detail-Ansicht: {selected_row['Schütze']} ({selected_row['Disziplin']}) — {selected_row['Datum']}", expanded=True):
+            # Header mit Info
+            st.subheader(f"{selected_row['Schütze']} — {selected_row['Datum']}")
             st.markdown(f"**Disziplin:** {selected_row['Disziplin']}  |  **Gesamt:** {selected_row['Gesamt']} Ringe")
+            st.divider()
 
             # Große Scheibe
             if coords:
                 st.plotly_chart(
-                    create_target_figure(coords, width=550, height=550),
+                    create_target_figure(coords, width=600, height=600),
                     width='stretch'
                 )
             else:
                 st.info("Keine Koordinaten-Daten verfügbar")
 
+            st.divider()
+
             # Serien-Tabelle
             st.markdown("#### Serien")
             series_dict = parse_series_string(series_str) if series_str else {}
             if series_dict:
-                # Baue DataFrame für Serien
                 series_data = []
                 for ser_num, shots in series_dict.items():
                     series_data.append({
@@ -560,21 +631,7 @@ if shootings:
                 st.markdown(f"**Gesamt: {selected_row['Gesamt']} Ringe**")
             else:
                 st.info("Serien-Daten nicht verfügbar")
-
-    # Entwicklung Chart
-    if len(shootings) >= 2:
-        st.header("Entwicklung der Ringzahl")
-        df_chart = df.copy()
-        df_chart["Datum"] = pd.to_datetime(df_chart["Datum"], errors="coerce")
-        df_chart = df_chart.sort_values("Datum")
-        fig = px.line(
-            df_chart, x="Datum", y="Gesamt", color="Schütze",
-            markers=True, title="Gesamtringzahl über die Zeit"
-        )
-        fig.update_layout(xaxis_title="Datum", yaxis_title="Ringe", legend_title="Schütze", height=400)
-        st.plotly_chart(fig, width='stretch')
-
-else:
-    st.info("Noch keine Schießergebnisse gespeichert. Importiere ein Ergebnis über die URL oben.")
+    else:
+        st.info("Noch keine Schießergebnisse gespeichert. Importiere ein Ergebnis über den Tab '📥 Import'.")
 
 
