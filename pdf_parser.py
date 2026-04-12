@@ -86,7 +86,7 @@ def process_pdf_bytes(pdf_bytes):
 
     # --- Gesamtergebnis ---
     gesamt_match = re.search(r"Ergebnis:\s+(\d+)\s+\(([0-9.]+)\)", full_text)
-    total_score = float(gesamt_match.group(2)) if gesamt_match else 0.0
+    total_score = int(gesamt_match.group(1)) if gesamt_match else 0
 
     # --- Serien ---
     serien_match = re.search(r"Serien:\s+([\d\s]+)", full_text)
