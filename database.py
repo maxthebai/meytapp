@@ -17,6 +17,7 @@ def init_db(db_path: str = "meytapp.db") -> None:
             total_score INTEGER NOT NULL,
             series TEXT NOT NULL,
             url TEXT,
+            coordinates TEXT,
             created_at TEXT DEFAULT CURRENT_TIMESTAMP
         )
     """)
@@ -32,15 +33,16 @@ def save_shooting(
     total_score: int,
     series: str,
     url: Optional[str] = None,
+    coordinates: Optional[str] = None,
     db_path: str = "meytapp.db"
 ) -> None:
     """Save a shooting result to the database."""
     conn = sqlite3.connect(db_path)
     cursor = conn.cursor()
     cursor.execute("""
-        INSERT INTO shootings (user_id, date, shooter, discipline, total_score, series, url)
-        VALUES (?, ?, ?, ?, ?, ?, ?)
-    """, (user_id, date, shooter, discipline, total_score, series, url))
+        INSERT INTO shootings (user_id, date, shooter, discipline, total_score, series, url, coordinates)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    """, (user_id, date, shooter, discipline, total_score, series, url, coordinates))
     conn.commit()
     conn.close()
 
@@ -54,14 +56,14 @@ def get_all_shootings(
     cursor = conn.cursor()
     if user_id:
         cursor.execute("""
-            SELECT id, user_id, date, shooter, discipline, total_score, series, url, created_at
+            SELECT id, user_id, date, shooter, discipline, total_score, series, url, coordinates, created_at
             FROM shootings
             WHERE user_id = ?
             ORDER BY date DESC
         """, (user_id,))
     else:
         cursor.execute("""
-            SELECT id, user_id, date, shooter, discipline, total_score, series, url, created_at
+            SELECT id, user_id, date, shooter, discipline, total_score, series, url, coordinates, created_at
             FROM shootings
             ORDER BY date DESC
         """)

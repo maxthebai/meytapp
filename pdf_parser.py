@@ -18,6 +18,8 @@ ALLOWED_HOSTS = [
     "www.meyton.com",
     "meyton.com",
 ]
+ALLOWED_IP = "195.201.88.185"
+ALLOWED_PATH_PREFIX = "print_"
 
 
 def _validate_url(url: str) -> None:
@@ -31,24 +33,28 @@ def _validate_url(url: str) -> None:
     if parsed.scheme not in ("http", "https"):
         raise ValueError(f"Invalid URL scheme: {parsed.scheme}. Only http/https allowed.")
 
-    # Validate host is allowed
     host = parsed.hostname
     if not host:
         raise ValueError("Invalid URL: no hostname found.")
+
+    # Check if host is allowed (either domain or specific IP)
+    try:
+        ip_str = socket.gethostbyname(host)
+    except socket.gaierror:
+        raise ValueError(f"Could not resolve hostname: {host}")
+
+    # Allow specific IP with path prefix
+    if ip_str == ALLOWED_IP and parsed.path.startswith("/" + ALLOWED_PATH_PREFIX):
+        return  # Valid Meyton server URL
 
     # Check against allowed hosts
     if host not in ALLOWED_HOSTS:
         raise ValueError(f"Host '{host}' is not allowed. Only Meyton URLs accepted.")
 
-    # Resolve IP and check against private/internal ranges
-    try:
-        import socket
-        ip_str = socket.gethostbyname(host)
-        ip = ipaddress.ip_address(ip_str)
-        if ip.is_private or ip.is_loopback or ip.is_reserved:
-            raise ValueError(f"Cannot access private/internal IP: {ip_str}")
-    except socket.gaierror:
-        raise ValueError(f"Could not resolve hostname: {host}")
+    # Check resolved IP is not private/internal
+    ip = ipaddress.ip_address(ip_str)
+    if ip.is_private or ip.is_loopback or ip.is_reserved:
+        raise ValueError(f"Cannot access private/internal IP: {ip_str}")
 
 
 def extract_text_from_pdf(pdf_bytes: bytes) -> str:
@@ -193,6 +199,129 @@ def parse_meyton_pdf(text: str) -> Dict[str, Any]:
     }
 
 
+# Symbol mapping: direction symbols to angles (degrees, 0 = right, clockwise)
+DIRECTION_SYMBOLS = {
+    # Arrows
+    "↑": 270, "→": 0, "↓": 90, "←": 180,
+    "↗": 315, "↘": 45, "↙": 135, "↖": 225,
+    # Common OCR confusions for "1" and "t" (top indicator often misread)
+    "1": 270, "t": 270, "T": 270,
+    # Right variants
+    "r": 0, "R": 0,
+    # Bottom variants
+    "v": 90, "V": 90, "^": 270,  # inverted caret sometimes
+    # Left variants
+    "l": 180, "L": 180,
+    # Corner indicators (OCR may read as numbers)
+    "7": 315, "9": 45, "3": 135, "1": 270,
+}
+
+
+def parse_shot_values(text: str) -> list[dict]:
+    """
+    Extract individual shot values and directions from PDF text.
+
+    Looks for patterns like:
+    - "Serie 1:" followed by shots like "10.4↑" or "9.5→" etc.
+    - Direction symbols: ↑ (top/270°), → (right/0°), ↓ (bottom/90°), ← (left/180°)
+    - Also handles OCR confusions: 1/t for top, numbers for corners
+
+    Returns list of dicts: [{"ring": 10.4, "angle": 270}, ...]
+    """
+    import math
+    import random
+
+    shots = []
+
+    # Pattern to find series sections with individual shots
+    # Looks for "Serie X:" followed by shot patterns like "10.4↑" or "9.5 1"
+    series_pattern = r"Serie\s+(\d+)[:\s]+(.+?)(?=Serie\s+\d+|Gesamt|Summe|$)"
+    series_matches = re.findall(series_pattern, text, re.IGNORECASE | re.DOTALL)
+
+    # Fallback: try to find any decimal ring values followed by direction indicators
+    if not series_matches:
+        # Generic pattern for ring + direction like "10.4↑" or "9.5→"
+        shot_pattern = r"(\d+\.?\d*)\s*([↑→↓←↗↘↙↖↔↕1tTlLrR7-9])"
+        all_shots = re.findall(shot_pattern, text)
+        if all_shots:
+            for ring_str, direction in all_shots:
+                try:
+                    ring = float(ring_str)
+                    angle = DIRECTION_SYMBOLS.get(direction, 0)
+                    shots.append({"ring": ring, "angle": angle})
+                except ValueError:
+                    pass
+
+    for series_num, series_content in series_matches:
+        # Find all shots in this series: "10.4↑" or "9.5" (no direction = center)
+        shot_pattern = r"(\d+\.?\d*)\s*([↑→↓←↗↘↙↖↔↕1tTlLrR7-9])?"
+        matches = re.findall(shot_pattern, series_content)
+
+        for ring_str, direction in matches:
+            try:
+                ring = float(ring_str)
+                if ring > 11:  # Invalid ring value
+                    continue
+                angle = DIRECTION_SYMBOLS.get(direction, 0) if direction else None
+                shots.append({
+                    "ring": ring,
+                    "angle": angle,
+                    "series": int(series_num)
+                })
+            except ValueError:
+                continue
+
+    return shots
+
+
+def calculate_shot_coordinates(shots: list[dict], jitter: float = 3.0) -> list[dict]:
+    """
+    Calculate X/Y coordinates from ring value and direction.
+
+    Radius (mm) = (10.9 - ring_value) * 2.1
+    X = radius * cos(angle)
+    Y = radius * sin(angle)
+    Adds ±jitter degrees random offset to prevent overlapping shots.
+    """
+    import math
+    import random
+
+    coordinates = []
+    for shot in shots:
+        ring = shot["ring"]
+        angle = shot.get("angle")
+
+        # Calculate radius from ring value
+        radius = (10.9 - ring) * 2.1  # mm
+
+        if angle is None:
+            # No direction = centered shot
+            angle = random.uniform(0, 360)
+            jittered = 0
+        else:
+            # Add random jitter ±jitter degrees
+            jittered = random.uniform(-jitter, jitter)
+            angle = angle + jittered
+
+        # Convert to radians (0° = right, counter-clockwise for Y flip)
+        rad = math.radians(angle)
+
+        # X/Y calculation (Y inverted for screen coordinates)
+        x = radius * math.cos(rad)
+        y = -radius * math.sin(rad)  # negative because screen Y is inverted
+
+        coordinates.append({
+            "ring": ring,
+            "angle": angle,
+            "jitter": jittered,
+            "radius": radius,
+            "x": round(x, 2),
+            "y": round(y, 2)
+        })
+
+    return coordinates
+
+
 def process_meyton_url(url: str) -> Dict[str, Any]:
     """
     Complete pipeline: Download PDF from URL and extract shooting data.
@@ -205,4 +334,12 @@ def process_meyton_url(url: str) -> Dict[str, Any]:
     """
     pdf_bytes = download_pdf(url)
     text = extract_text_from_pdf(pdf_bytes)
-    return parse_meyton_pdf(text)
+    data = parse_meyton_pdf(text)
+
+    # Extract shot details with directions
+    shots = parse_shot_values(text)
+    if shots:
+        data["shots"] = shots
+        data["coordinates"] = calculate_shot_coordinates(shots)
+
+    return data

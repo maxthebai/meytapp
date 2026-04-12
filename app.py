@@ -45,6 +45,109 @@ def scan_qr_code(img, debug: bool = False):
     return None, debug_img
 
 
+def create_target_figure(coordinates: list[dict]):
+    """Create a Plotly figure showing a target with shot markers."""
+    import plotly.graph_objects as go
+    import numpy as np
+
+    fig = go.Figure()
+
+    # Draw target rings (10 rings, each 21mm diameter increment)
+    ring_radius_full = 10.9 * 2.1  # Max radius in mm (10 ring = 10.9 on scale)
+    for i in range(10, 0, -1):
+        # Ring border
+        ring_r = (11 - i) * 2.1  # Radius of this ring
+        theta = np.linspace(0, 2 * np.pi, 100)
+        x_ring = ring_r * np.cos(theta)
+        y_ring = ring_r * np.sin(theta)
+        color = "black" if i % 2 == 0 else "white"
+        fig.add_trace(go.Scatter(
+            x=x_ring, y=y_ring,
+            mode="lines",
+            line=dict(color=color, width=1),
+            showlegend=False,
+            hoverinfo="skip"
+        ))
+
+    # Draw outer circle (target boundary)
+    outer_r = ring_radius_full
+    theta = np.linspace(0, 2 * np.pi, 100)
+    fig.add_trace(go.Scatter(
+        x=outer_r * np.cos(theta),
+        y=outer_r * np.sin(theta),
+        mode="lines",
+        line=dict(color="black", width=2),
+        showlegend=False,
+        hoverinfo="skip"
+    ))
+
+    # Draw crosshairs (horizontal and vertical lines)
+    fig.add_trace(go.Scatter(
+        x=[-outer_r, outer_r], y=[0, 0],
+        mode="lines", line=dict(color="gray", width=0.5, dash="dash"),
+        showlegend=False, hoverinfo="skip"
+    ))
+    fig.add_trace(go.Scatter(
+        x=[0, 0], y=[-outer_r, outer_r],
+        mode="lines", line=dict(color="gray", width=0.5, dash="dash"),
+        showlegend=False, hoverinfo="skip"
+    ))
+
+    # Draw shot markers
+    for shot in coordinates:
+        x, y = shot["x"], shot["y"]
+        ring = shot["ring"]
+        # Color based on ring value (10=gold, 9=blue, 8=black, 7-6=red, <6=orange)
+        if ring >= 10:
+            color = "#FFD700"  # Gold
+        elif ring >= 9:
+            color = "#4169E1"  # Royal blue
+        elif ring >= 8:
+            color = "#000000"  # Black
+        elif ring >= 7:
+            color = "#FF0000"  # Red
+        else:
+            color = "#FFA500"  # Orange
+
+        fig.add_trace(go.Scatter(
+            x=[x], y=[y],
+            mode="markers",
+            marker=dict(size=12, color=color, line=dict(color="black", width=1)),
+            text=f"Ring: {ring}<br>Winkel: {shot['angle']:.1f}°",
+            hovertemplate="%{text}<extra></extra>",
+            showlegend=False
+        ))
+
+    # Set consistent axis scale and styling
+    max_range = outer_r * 1.1
+    fig.update_layout(
+        xaxis=dict(
+            range=[-max_range, max_range],
+            scaleanchor="y",
+            scaleratio=1,
+            showgrid=True,
+            gridcolor="lightgray",
+            zeroline=False,
+            title="X (mm)"
+        ),
+        yaxis=dict(
+            range=[-max_range, max_range],
+            showgrid=True,
+            gridcolor="lightgray",
+            zeroline=False,
+            title="Y (mm)"
+        ),
+        width=500,
+        height=500,
+        plot_bgcolor="white",
+        paper_bgcolor="white",
+        title="Zielscheibe (10 Ringe)",
+        title_x=0.5
+    )
+
+    return fig
+
+
 def init_session():
     """Initialize session state variables."""
     if "authenticator" not in st.session_state:
@@ -62,6 +165,10 @@ def import_result(url: str, user_id: str):
 
             if data["shooter"] and data["total_score"] > 0:
                 series_str = ",".join(str(s) for s in data["series"])
+                coordinates_str = None
+                if "coordinates" in data and data["coordinates"]:
+                    import json
+                    coordinates_str = json.dumps(data["coordinates"])
                 save_shooting(
                     user_id=user_id,
                     date=data["date"],
@@ -69,8 +176,11 @@ def import_result(url: str, user_id: str):
                     discipline=data["discipline"],
                     total_score=data["total_score"],
                     series=series_str,
-                    url=url
+                    url=url,
+                    coordinates=coordinates_str
                 )
+                st.session_state.last_saved_coordinates = data.get("coordinates", [])
+                st.session_state.last_saved_shooter = data["shooter"]
                 st.success(f"Ergebnis für {data['shooter']} wurde gespeichert!")
                 st.balloons()
                 return True
@@ -315,10 +425,11 @@ shootings = get_all_shootings(user_id=username)
 
 if shootings:
     import pandas as pd
+    import json
 
     df = pd.DataFrame(
         shootings,
-        columns=["ID", "Benutzer", "Datum", "Schütze", "Disziplin", "Gesamt", "Serien", "URL", "Erstellt"]
+        columns=["ID", "Benutzer", "Datum", "Schütze", "Disziplin", "Gesamt", "Serien", "URL", "Koordinaten", "Erstellt"]
     )
 
     df_display = df.copy()
@@ -369,6 +480,14 @@ if shootings:
         if st.button("Löschen", type="secondary"):
             delete_shooting(int(delete_id), username)
             st.rerun()
+
+    # Show target plot for last saved shooting
+    if "last_saved_coordinates" in st.session_state and st.session_state.last_saved_coordinates:
+        st.header(f"Schussbild: {st.session_state.get('last_saved_shooter', 'Unbekannt')}")
+        coords = st.session_state.last_saved_coordinates
+        if coords:
+            st.plotly_chart(create_target_figure(coords), use_container_width=True)
+        st.session_state.last_saved_coordinates = None
 else:
     st.info("Noch keine Schießergebnisse gespeichert. Importiere ein Ergebnis über die URL oben.")
 
