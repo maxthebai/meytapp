@@ -7,3 +7,4 @@ pyzbar
 PyPDF2
 plotly
 streamlit-authenticator
+pymupdf
