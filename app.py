@@ -152,9 +152,8 @@ def init_session():
     """Initialize session state variables."""
     if "authenticator" not in st.session_state:
         st.session_state.authenticator = init_auth()
-    if "db_initialized" not in st.session_state:
-        init_db()
-        st.session_state.db_initialized = True
+    # Always run init_db to ensure migrations are applied
+    init_db()
 
 
 def import_result(url: str, user_id: str):
