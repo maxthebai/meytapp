@@ -13,58 +13,61 @@ from pdf_parser import process_meyton_url, process_pdf_bytes
 from auth import init_auth
 
 # --- KONFIGURATION ---
-st.set_page_config(page_title="Meytapp Pro 🎯", layout="wide")
+st.set_page_config(page_title="Meytapp Pro", layout="wide")
 
-# --- MATHEMATISCHE BERECHNUNG (Ring & Grad -> X/Y) ---
-def calculate_coords_from_ring_grad(ring, grad):
+# --- MATHEMATIK: RING & GRAD -> MM ---
+def get_mm_coords(ring, grad):
     """
-    Berechnet X/Y exakt nach Benutzervorgabe:
-    Radius = (10.9 - Ring) * 2.5mm
-    Winkel in Grad -> Radian -> Sin/Cos
+    Berechnet X/Y in Millimetern basierend auf der PDF-Info.
+    Radius r = (10.9 - Ringwert) * 2.5mm (LG Standard)
     """
-    radius_mm = (10.9 - ring) * 2.5
-    theta = math.radians(grad)
+    # Radius in mm
+    r = (10.9 - float(ring)) * 2.5
+    # Winkel in Radiant (Meyton 0° = oben/12 Uhr)
+    phi = math.radians(float(grad))
     
-    # 0 Grad ist bei Meyton oben (12 Uhr)
-    x = radius_mm * math.sin(theta)
-    y = radius_mm * math.cos(theta)
-    
-    # Rückgabe in Hundertstel-mm für Datenbank-Kompatibilität
-    return x * 100, y * 100
+    x = r * math.sin(phi)
+    y = r * math.cos(phi)
+    return x, y
 
-# --- GRAFIK FUNKTION ---
-def create_target_plot(coordinates: list[dict]):
+# --- GRAFIK: MATPLOTLIB (Maßstab in mm) ---
+def create_target_plot(shots_data: list):
     fig, ax = plt.subplots(figsize=(5, 5))
     
-    # ISSF Radien LG (mm)
-    ring_radii = {1: 22.75, 2: 20.25, 3: 17.75, 4: 15.25, 
-                  5: 12.75, 6: 10.25, 7: 7.75, 8: 5.25, 9: 2.75}
+    # ISSF Radien für LG in mm (Ring 1 bis 9)
+    radii = {1: 22.75, 2: 20.25, 3: 17.75, 4: 15.25, 5: 12.75, 6: 10.25, 7: 7.75, 8: 5.25, 9: 2.75}
     
-    for r, radius in sorted(ring_radii.items()):
-        f_color = 'black' if r >= 4 else 'white'
-        e_color = 'white' if r >= 4 else 'black'
-        ax.add_patch(plt.Circle((0, 0), radius, edgecolor=e_color, facecolor=f_color, zorder=1))
+    for r_num, r_val in radii.items():
+        color = 'black' if r_num >= 4 else 'white'
+        edge = 'white' if r_num >= 4 else 'black'
+        ax.add_patch(plt.Circle((0, 0), r_val, facecolor=color, edgecolor=edge, zorder=1))
         
-        t_color = 'white' if r >= 4 else 'black'
-        ax.text(0, radius - 1.2, str(r), color=t_color, ha='center', fontsize=7, zorder=2)
+        # Ringzahlen
+        txt_c = 'white' if r_num >= 4 else 'black'
+        ax.text(0, r_val - 1.2, str(r_num), color=txt_c, ha='center', fontsize=7, zorder=2)
 
-    ax.add_patch(plt.Circle((0, 0), 0.25, color='white', zorder=3)) # Die 10
+    # Die 10 (Zentrumspunkt)
+    ax.add_patch(plt.Circle((0, 0), 0.25, color='white', zorder=3))
 
-    if coordinates:
-        for shot in coordinates:
-            # Umrechnung zurück in mm für den Plot
-            x, y = shot.get("x", 0) / 100.0, shot.get("y", 0) / 100.0
-            ring = shot.get("ring", 0)
-            c = 'red' if ring >= 10.0 else ('yellow' if ring >= 9.0 else 'black')
-            edge = 'white' if c == 'black' and abs(x) < 15.5 else 'black'
-            ax.scatter(x, y, color=c, edgecolors=edge, s=55, alpha=0.9, zorder=5)
+    # Schüsse einzeichnen
+    if shots_data:
+        for s in shots_data:
+            # Wir nehmen an, dass in der DB bereits die mm-Werte liegen
+            x, y = s.get("x", 0), s.get("y", 0)
+            ring = s.get("ring", 0)
+            
+            shot_color = 'red' if ring >= 10.0 else ('yellow' if ring >= 9.0 else 'black')
+            shot_edge = 'white' if shot_color == 'black' and abs(x) < 15 else 'black'
+            
+            ax.scatter(x, y, color=shot_color, edgecolors=shot_edge, s=60, alpha=0.9, zorder=5)
 
-    ax.set_xlim(-25, 25); ax.set_ylim(-25, 25)
-    ax.set_aspect('equal'); ax.axis('off')
-    plt.tight_layout()
+    ax.set_xlim(-25, 25)
+    ax.set_ylim(-25, 25)
+    ax.set_aspect('equal')
+    ax.axis('off')
     return fig
 
-# --- INITIALISIERUNG & AUTH ---
+# --- AUTH & DB ---
 init_db()
 if "authenticator" not in st.session_state:
     st.session_state.authenticator = init_auth()
@@ -73,85 +76,72 @@ auth = st.session_state.authenticator
 auth.login(location="main")
 
 if st.session_state.get("authentication_status") is not True:
-    t1, t2 = st.tabs(["Anmelden", "Registrieren"])
+    t1, t2 = st.tabs(["Login", "Registrieren"])
     with t2: auth.register_user(location="main", merge_username_email=True)
     st.stop()
 
-# --- HAUPTAPP ---
-username = st.session_state.username
-st.sidebar.title(f"🎯 {st.session_state.name}")
+# --- APP LAYOUT ---
+st.sidebar.title(f"User: {st.session_state.name}")
 auth.logout(location="sidebar")
 
-tabs = st.tabs(["📥 Import", "📋 Historie", "📈 Verlauf", "🎯 Detail"])
+tab_import, tab_history, tab_stats, tab_detail = st.tabs(["📥 Import", "📋 Historie", "📈 Verlauf", "🎯 Detail"])
 
-# --- TAB 1: IMPORT (QR KLEINER & PDF FIX) ---
-with tabs[0]:
-    col_left, col_mid, col_right = st.columns([1, 1.5, 1])
-    with col_mid:
-        st.subheader("QR-Scanner")
-        cam_img = st.camera_input("QR-Code scannen", label_visibility="collapsed")
-        if cam_img:
-            # QR-Logik hier einfügen (wie zuvor mit pyzbar)
-            st.info("Scanner aktiv...")
-
+# 1. IMPORT (QR Preview kleiner)
+with tab_import:
+    col1, col2, col3 = st.columns([1, 1.2, 1])
+    with col2:
+        st.write("### QR Scanner")
+        cam_file = st.camera_input("QR-Code scannen", label_visibility="collapsed")
+    
     st.divider()
     
-    col_pdf, col_url = st.columns(2)
-    with col_pdf:
-        st.subheader("PDF manuell")
-        uploaded_pdf = st.file_uploader("Meyton PDF hochladen", type="pdf")
-        if st.button("PDF verarbeiten") and uploaded_pdf:
-            data = process_pdf_bytes(uploaded_pdf.read())
-            save_shooting(username, data["date"], data["shooter"], data["discipline"], 
-                         data["total_score"], ",".join(map(str, data["series"])), None, json.dumps(data.get("coordinates", [])))
-            st.success("Gespeichert!")
+    c_pdf, c_url = st.columns(2)
+    with c_pdf:
+        st.write("### PDF Upload")
+        pdf_file = st.file_uploader("Meyton PDF wählen", type="pdf")
+        if st.button("PDF Auswerten") and pdf_file:
+            # Hier muss dein pdf_parser die Funktion get_mm_coords nutzen!
+            data = process_pdf_bytes(pdf_file.read())
+            save_shooting(st.session_state.username, data["date"], data["shooter"], 
+                          data["discipline"], data["total_score"], 
+                          ",".join(map(str, data["series"])), None, json.dumps(data["coordinates"]))
+            st.success("Importiert!")
             st.rerun()
 
-    with col_url:
-        st.subheader("URL Import")
-        url_in = st.text_input("Meyton Link")
-        if st.button("URL laden") and url_in:
-            data = process_meyton_url(url_in)
-            save_shooting(username, data["date"], data["shooter"], data["discipline"], 
-                         data["total_score"], ",".join(map(str, data["series"])), url_in, json.dumps(data.get("coordinates", [])))
-            st.rerun()
-
-# --- TAB 2: HISTORIE ---
-with tabs[1]:
-    st.header("Deine Ergebnisse")
-    rows = get_all_shootings(username)
-    if rows:
-        df = pd.DataFrame(rows, columns=["ID", "User", "Datum", "Schütze", "Disziplin", "Gesamt", "Serien", "URL", "Coords", "Erstellt"])
-        st.dataframe(df[["ID", "Datum", "Schütze", "Gesamt"]].sort_values("ID", ascending=False), use_container_width=True, hide_index=True)
+# 2. HISTORIE (Vollständig)
+with tab_history:
+    st.write("### Deine Schießen")
+    shootings = get_all_shootings(st.session_state.username)
+    if shootings:
+        df = pd.DataFrame(shootings, columns=["ID", "User", "Datum", "Schütze", "Disziplin", "Gesamt", "Serien", "URL", "Coords", "Time"])
+        st.dataframe(df[["ID", "Datum", "Schütze", "Gesamt", "Disziplin"]].sort_values("ID", ascending=False), use_container_width=True, hide_index=True)
         
-        if st.button("Ausgewählte ID löschen"):
-            # Logik für Lösch-ID hier (z.B. über ein st.number_input)
-            pass
-    else:
-        st.info("Noch keine Einträge.")
+        del_id = st.number_input("ID zum Löschen", min_value=0, step=1)
+        if st.button("Eintrag entfernen"):
+            delete_shooting(del_id, st.session_state.username)
+            st.rerun()
 
-# --- TAB 3: VERLAUF (OHNE UHRZEIT) ---
-with tabs[2]:
-    rows = get_all_shootings(username)
-    if len(rows) > 1:
+# 3. VERLAUF (Keine Uhrzeit)
+with tab_stats:
+    if shootings:
+        df = pd.DataFrame(shootings, columns=["ID", "User", "Datum", "Schütze", "Disziplin", "Gesamt", "Serien", "URL", "Coords", "Time"])
+        df["Datum"] = pd.to_datetime(df["Datum"]).dt.date # NUR DATUM
         import plotly.express as px
-        df = pd.DataFrame(rows, columns=["ID", "User", "Datum", "Schütze", "Disziplin", "Gesamt", "Serien", "URL", "Coords", "Erstellt"])
-        df["Datum"] = pd.to_datetime(df["Datum"]).dt.date # UHRZEIT WEG
-        fig = px.line(df.sort_values("Datum"), x="Datum", y="Gesamt", markers=True)
+        fig = px.line(df.sort_values("Datum"), x="Datum", y="Gesamt", markers=True, title="Leistungskurve")
         fig.update_xaxes(tickformat="%d.%m.%Y")
         st.plotly_chart(fig, use_container_width=True)
 
-# --- TAB 4: DETAIL ---
-with tabs[3]:
-    rows = get_all_shootings(username)
-    if rows:
-        sel_id = st.selectbox("Training wählen", [r[0] for r in rows], format_func=lambda x: f"ID {x}")
-        res = next(r for r in rows if r[0] == sel_id)
+# 4. DETAIL
+with tab_detail:
+    if shootings:
+        options = {s[0]: f"{s[2]} - {s[5]} Ringe" for s in shootings}
+        selection = st.selectbox("Training wählen", options.keys(), format_func=lambda x: options[x])
+        res = next(s for s in shootings if s[0] == selection)
         
-        c_plt, c_met = st.columns([2, 1])
-        with c_plt:
-            st.pyplot(create_target_plot(json.loads(res[8]) if res[8] else []))
-        with c_met:
+        col_plot, col_info = st.columns([2, 1])
+        with col_plot:
+            st.pyplot(create_target_plot(json.loads(res[8])))
+        with col_info:
             st.metric("Gesamt", res[5])
-            st.write(f"Datum: {res[2]}")
-            st.write(f"Serien: {res[6]}")
+            st.write(f"**Datum:** {res[2]}")
+            st.write(f"**Serien:** {res[6]}")
