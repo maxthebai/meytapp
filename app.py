@@ -7,35 +7,44 @@ from pdf_parser import process_meyton_url
 from auth import init_auth
 
 
-def scan_qr_code(img) -> str | None:
+def scan_qr_code(img, debug: bool = False):
     """
-    Scan QR code from image using pyzbar with preprocessing.
-    Returns the decoded data or None if no QR code found.
+    Scan QR code from image using pyzbar with light preprocessing.
+    Returns (data, debug_image) tuple. debug_image is None if QR found.
     """
     import cv2
     import numpy as np
     from pyzbar.pyzbar import decode
 
-    # Convert to grayscale for better detection
     gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
 
-    # Apply adaptive thresholding to enhance contrast
+    # Strategies to try in order: original -> CLAHE -> threshold fallback
+    processed_images = [gray]
+
+    # Strategy 2: CLAHE for contrast enhancement
+    clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8, 8))
+    clahe_img = clahe.apply(gray)
+    processed_images.append(clahe_img)
+
+    # Strategy 3: threshold fallback (only if everything else fails)
     thresh = cv2.adaptiveThreshold(
         gray, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C, cv2.THRESH_BINARY, 11, 2
     )
+    processed_images.append(thresh)
 
-    # Optional: sharpen the image
-    kernel = np.array([[-1, -1, -1], [-1, 9, -1], [-1, -1, -1]])
-    sharpened = cv2.filter2D(thresh, -1, kernel)
-
-    # Try decoding on both original grayscale and sharpened
-    for processed in [gray, sharpened]:
+    debug_img = None
+    for processed in processed_images:
         decoded = decode(processed)
         for symbol in decoded:
             data = symbol.data.decode("utf-8")
             if data:
-                return data
-    return None
+                return data, None  # QR found, no debug image needed
+
+    # Nothing worked - show debug image
+    if debug:
+        debug_img = clahe_img  # Show CLAHE result for user inspection
+
+    return None, debug_img
 
 
 def init_session():
@@ -234,13 +243,16 @@ with tab2:
             import numpy as np
             file_bytes = np.frombuffer(uploaded_file.read(), dtype=np.uint8)
             img = cv2.imdecode(file_bytes, cv2.IMREAD_COLOR)
-            data = scan_qr_code(img)
+            data, debug_img = scan_qr_code(img, debug=True)
             if data and "esta" in data.lower():
                 st.session_state.qr_result = data
             elif data:
                 st.warning(f"QR-Code gefunden, aber kein gültiger Meyton-Code: {data}")
             else:
                 st.error("Kein QR-Code im Bild gefunden.")
+                if debug_img is not None:
+                    st.warning("Debug-Ansicht (CLAHE-verarbeitet):")
+                    st.image(debug_img, channels="GRAY")
 
     else:
         try:
@@ -255,7 +267,7 @@ with tab2:
             class QRVideoProcessor(VideoProcessorBase):
                 def recv(self, frame):
                     img = frame.to_ndarray(format="bgr24")
-                    data = scan_qr_code(img)
+                    data, _ = scan_qr_code(img, debug=False)
                     if data and "esta" in data.lower():
                         st.session_state.qr_queue.put(data)
                     return frame
