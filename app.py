@@ -302,7 +302,7 @@ st.divider()
 # Import Section with Tabs
 st.header("Ergebnis importieren")
 
-tab1, tab2 = st.tabs(["📋 URL eingeben", "📷 QR-Code scannen"])
+tab1, tab2, tab3 = st.tabs(["📋 URL eingeben", "📷 QR-Code scannen", "📄 PDF hochladen"])
 
 with tab1:
     url_input = st.text_input(
@@ -417,6 +417,48 @@ with tab2:
             if st.button("Neu scannen", type="secondary", use_container_width=True):
                 st.session_state.qr_result = None
                 st.rerun()
+
+with tab3:
+    st.markdown("""
+        **Direkt-PDF-Upload:**
+        Lade eine Meyton PDF-Datei hoch, die du bereits auf deinem Gerät gespeichert hast.
+    """)
+    uploaded_pdf = st.file_uploader(
+        "PDF-Datei auswählen",
+        type=["pdf"],
+        key="pdf_upload"
+    )
+    if uploaded_pdf:
+        with st.spinner("PDF wird verarbeitet..."):
+            try:
+                from pdf_parser import process_pdf_bytes
+                pdf_bytes = uploaded_pdf.read()
+                data = process_pdf_bytes(pdf_bytes)
+                if data["shooter"] and data["total_score"] > 0:
+                    series_str = ",".join(str(s) for s in data["series"])
+                    import json
+                    coordinates_str = None
+                    if "coordinates" in data and data["coordinates"]:
+                        coordinates_str = json.dumps(data["coordinates"])
+                    save_shooting(
+                        user_id=username,
+                        date=data["date"],
+                        shooter=data["shooter"],
+                        discipline=data["discipline"],
+                        total_score=data["total_score"],
+                        series=series_str,
+                        url=None,
+                        coordinates=coordinates_str
+                    )
+                    st.session_state.last_saved_coordinates = data.get("coordinates", [])
+                    st.session_state.last_saved_shooter = data["shooter"]
+                    st.success(f"Ergebnis für {data['shooter']} wurde gespeichert!")
+                    st.balloons()
+                else:
+                    st.warning("PDF gefunden, aber Daten konnten nicht vollständig extrahiert werden.")
+                    st.json(data)
+            except Exception as e:
+                st.error(f"Fehler beim Verarbeiten der PDF: {str(e)}")
 
 # Display all shootings for this user
 st.header("Schießhistorie")

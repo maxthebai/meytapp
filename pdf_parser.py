@@ -335,6 +335,23 @@ def calculate_shot_coordinates(shots: list[dict], jitter: float = 3.0) -> list[d
     return coordinates
 
 
+def process_pdf_bytes(pdf_bytes: bytes) -> Dict[str, Any]:
+    """
+    Process PDF bytes directly without URL validation.
+    Downloads and parses a Meyton PDF.
+    """
+    text = extract_text_from_pdf(pdf_bytes)
+    data = parse_meyton_pdf(text)
+
+    # Extract shot details with directions
+    shots = parse_shot_values(text)
+    if shots:
+        data["shots"] = shots
+        data["coordinates"] = calculate_shot_coordinates(shots)
+
+    return data
+
+
 def process_meyton_url(url: str) -> Dict[str, Any]:
     """
     Complete pipeline: Download PDF from URL and extract shooting data.
@@ -346,13 +363,4 @@ def process_meyton_url(url: str) -> Dict[str, Any]:
         Dictionary with extracted shooting data
     """
     pdf_bytes = download_pdf(url)
-    text = extract_text_from_pdf(pdf_bytes)
-    data = parse_meyton_pdf(text)
-
-    # Extract shot details with directions
-    shots = parse_shot_values(text)
-    if shots:
-        data["shots"] = shots
-        data["coordinates"] = calculate_shot_coordinates(shots)
-
-    return data
+    return process_pdf_bytes(pdf_bytes)
