@@ -107,7 +107,7 @@ def process_pdf_bytes(pdf_bytes):
 
         ring_int = int(ring)
         if ring_int >= 10:
-            radius = inner_radius * 0.5
+            radius = max(0.0, inner_radius + (10.9 - ring) * ring_step)
         else:
             radius = inner_radius + (10 - ring_int) * ring_step
 
