@@ -226,17 +226,14 @@ authenticator = st.session_state.authenticator
 
 # ── Authentication ────────────────────────────────────────────────────────────
 
-# Prüfe Cookie-Authentifizierung VOR dem Login-Formular
-auth_status = st.session_state.get("authentication_status")
-
-# Login / Register tabs - only shown when not authenticated
-if auth_status is None or auth_status is False:
-    # Cookie-basierte Authentifizierung prüfen
+# Cookie-Authentifizierung prüfen (auf jedem Page-Load)
+if st.session_state.get("authentication_status") is None:
     cookie_result = authenticator.login(location="unrendered")
     if cookie_result:
         st.session_state.name, st.session_state.authentication_status, st.session_state.username = cookie_result
-        # Kein st.rerun() nötig - authentication_status ist jetzt gesetzt und Flow geht normal weiter
 
+# Login / Register tabs - only shown when not authenticated
+if st.session_state.get("authentication_status") is None or st.session_state.get("authentication_status") is False:
     tab_login, tab_register = st.columns(2)
 
     with tab_login:
