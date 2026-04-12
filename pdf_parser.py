@@ -1,366 +1,73 @@
+import math
+import PyPDF2
 import re
-import requests
-import io
+from io import BytesIO
 from datetime import datetime
-from typing import Optional, Dict, Any
-import pdfplumber
 
-
-def download_pdf(url: str) -> bytes:
-    """Download PDF from URL and return raw bytes."""
-    _validate_url(url)  # Security: prevent SSRF
-    response = requests.get(url, timeout=30)
-    response.raise_for_status()
-    return response.content
-
-
-def _validate_url(url: str) -> None:
+def process_pdf_bytes(pdf_bytes):
     """
-    Validate URL to ensure it's a legitimate Meyton PDF URL.
-    Accepts URLs that:
-    - Contain /esta5/ in the path
-    - Have a filename starting with 'print_' and ending with '.pdf'
-    - Contain query parameters like 'id=' or 'key='
+    Liest die PDF aus und berechnet die Koordinaten AUSSCHLIESSLICH 
+    über Ringzahl und Winkel (Grad).
     """
-    from urllib.parse import urlparse, parse_qs
+    reader = PyPDF2.PdfReader(BytesIO(pdf_bytes))
+    full_text = ""
+    for page in reader.pages:
+        full_text += page.extract_text() + "\n"
 
-    parsed = urlparse(url)
-
-    # Only allow http/https
-    if parsed.scheme not in ("http", "https"):
-        raise ValueError(f"Invalid URL scheme: {parsed.scheme}. Only http/https allowed.")
-
-    host = parsed.hostname
-    if not host:
-        raise ValueError("Invalid URL: no hostname found.")
-
-    path = parsed.path.lower()
-    query = parsed.query.lower()
-
-    # Check if URL matches Meyton PDF patterns
-    is_meyton_url = False
-
-    # Pattern 1: Contains /esta5/ folder
-    if "/esta5/" in path:
-        is_meyton_url = True
-
-    # Pattern 2: Filename starts with print_ and ends with .pdf
-    if path.startswith("/print_") and path.endswith(".pdf"):
-        is_meyton_url = True
-
-    # Pattern 3: Contains id= or key= parameters (common for dynamic URLs)
-    if "id=" in query or "key=" in query:
-        is_meyton_url = True
-
-    if not is_meyton_url:
-        raise ValueError(
-            "Ungültige Meyton-URL. Die URL muss /esta5/ enthalten, "
-            "mit 'print_' beginnen und auf '.pdf' enden, "
-            "oder id=/key= Parameter haben."
-        )
-
-    # Resolve IP and check it's not a private/internal range
-    try:
-        import socket
-        ip_str = socket.gethostbyname(host)
-        ip = ipaddress.ip_address(ip_str)
-        if ip.is_private or ip.is_loopback or ip.is_reserved:
-            raise ValueError(f"Cannot access private/internal IP: {ip_str}")
-    except socket.gaierror:
-        raise ValueError(f"Could not resolve hostname: {host}")
-
-
-def extract_text_from_pdf(pdf_bytes: bytes) -> str:
-    """Extract all text from PDF bytes using pdfplumber."""
-    pdf_file = io.BytesIO(pdf_bytes)
-    text_parts = []
-    with pdfplumber.open(pdf_file) as pdf:
-        for page in pdf.pages:
-            text = page.extract_text()
-            if text:
-                text_parts.append(text)
-    return "\n".join(text_parts)
-
-
-def parse_meyton_pdf(text: str) -> Dict[str, Any]:
-    """
-    Parse Meyton ESTA 5 PDF text and extract shooting data.
-
-    Returns a dictionary with:
-    - date: Date string (YYYY-MM-DD)
-    - shooter: Name of the shooter
-    - discipline: Shooting discipline
-    - series: List of individual series scores
-    - total_score: Total rings/score
-    """
-    lines = text.split("\n")
-
-    # Extract date - various formats like "10.03.2024" or "10.03.2024 14:30"
-    date_match = re.search(r"(\d{1,2}[./-]\d{1,2}[./-]\d{2,4})", text)
-    date_str = ""
-    if date_match:
-        raw_date = date_match.group(1)
-        # Normalize separator and parse
-        normalized = re.sub(r"[./-]", ".", raw_date)
-        try:
-            # Try DD.MM.YYYY format
-            parsed = datetime.strptime(normalized, "%d.%m.%Y")
-            date_str = parsed.strftime("%Y-%m-%d")
-        except ValueError:
-            try:
-                # Try YYYY-MM-DD
-                parsed = datetime.strptime(normalized, "%Y.%m.%d")
-                date_str = parsed.strftime("%Y-%m-%d")
-            except ValueError:
-                date_str = raw_date.replace(".", "-")
-
-    # Extract shooter name - typically after "Schütze:" or similar label
-    shooter = ""
-    shooter_patterns = [
-        r"(?:Schütze|Name)[:\s]+([A-ZÄÖÜ][a-zäöüß]+(?:\s+[A-ZÄÖÜ][a-zäöüß]+)+)",
-        r"([A-ZÄÖÜ][a-zäöüß]+\s+[A-ZÄÖÜ][a-zäöüß]+)\s+(?:hat|schießt|wird)",
-        r"([A-ZÄÖÜ][a-zäöüß]+),\s*([A-ZÄÖÜ][a-zäöüß]+)",  # "Baiker, Max" format
-    ]
-    for pattern in shooter_patterns:
-        match = re.search(pattern, text)
-        if match:
-            groups = match.groups()
-            if len(groups) == 2:
-                # "Lastname, Firstname" format - swap to "Firstname Lastname"
-                shooter = f"{groups[1].strip()} {groups[0].strip()}"
-            else:
-                shooter = match.group(1).strip()
-            break
-
-    # Extract discipline - common shooting disciplines
-    discipline = ""
-    discipline_candidates = [
-        ("LG", "Luftgewehr"),
-        ("LP", "Luftpistole"),
-        ("KK", "KK-Gewehr"),
-        ("Freie Pistole", "Freie Pistole"),
-        ("Standardpistole", "Standardpistole"),
-        ("Zentralfeuerpistole", "Zentralfeuerpistole"),
-        ("Ordonnanzpistole", "Ordonnanzpistole"),
-        ("Revolver", "Revolver"),
-        ("Teilsystem", "Teilsystem"),
-        ("Muttern", "Muttern"),
-        ("Spielmann", "Spielmann")
-    ]
-    for abbrev, full_name in discipline_candidates:
-        if abbrev.lower() in text.lower():
-            # Check if it's followed by "20" (number of shots) and append it
-            match = re.search(re.escape(abbrev) + r"\s*(\d+)", text, re.IGNORECASE)
-            if match:
-                discipline = f"{full_name} {match.group(1)}"
-            else:
-                discipline = full_name
-            break
-
-    # Extract series scores - look for patterns like "Serie: 95 94 96 93" or "1: 95 2: 94"
-    series = []
-    series_patterns = [
-        r"(?:Serie[n]?[:\s]+)(\d+(?:\s+\d+)+)",
-        r"(\d{2,3})\s+(?:\d{2,3}\s+){0,3}\d{2,3}",  # Ring numbers in a row
-        r"Serie\s*1[:\s]+(\d{2,3}).*Serie\s*2[:\s]+(\d{2,3})",
-    ]
-
-    for pattern in series_patterns:
-        matches = re.findall(pattern, text)
-        if matches:
-            if isinstance(matches[0], tuple):
-                series = [int(m) for m in matches[0] if m.isdigit()]
-            else:
-                # Find all numbers in the matched string
-                numbers = re.findall(r"\d{2,3}", matches[0] if isinstance(matches[0], str) else " ".join(matches))
-                if numbers:
-                    series = [int(n) for n in numbers[:10]]  # Limit to reasonable number
-            if series:
-                break
-
-    # If no series found with patterns, try line by line approach
-    if not series:
-        for line in lines:
-            # Look for lines with 2-3 digit numbers that could be scores
-            numbers = re.findall(r"\b(\d{2,3})\b", line)
-            if 3 <= len(numbers) <= 6 and all(0 <= int(n) <= 100 for n in numbers):
-                series = [int(n) for n in numbers]
-                break
-
-    # Extract total score - usually at the end or marked with "Gesamt" or "Summe"
-    total_score = 0
-    total_patterns = [
-        r"(?:Gesamt|Summe|Total)[:\s]+(\d{2,3})",
-        r"(?:Ergebnis|result)[:\s]+(\d{2,3})",
-    ]
-    for pattern in total_patterns:
-        match = re.search(pattern, text, re.IGNORECASE)
-        if match:
-            total_score = int(match.group(1))
-            break
-
-    # If no explicit total found, calculate from series
-    if total_score == 0 and series:
-        total_score = sum(series)
-
-    return {
-        "date": date_str,
-        "shooter": shooter,
-        "discipline": discipline,
-        "series": series,
-        "total_score": total_score,
+    # Standard-Werte für Fallback
+    data = {
+        "date": datetime.now().strftime("%Y-%m-%d"),
+        "shooter": "Unbekannt",
+        "discipline": "Luftgewehr",
+        "total_score": 0.0,
+        "series": [],
+        "coordinates": []
     }
 
-
-# Symbol mapping: direction symbols to angles (degrees, 0 = right, clockwise)
-DIRECTION_SYMBOLS = {
-    # Arrows
-    "↑": 270, "→": 0, "↓": 90, "←": 180,
-    "↗": 315, "↘": 45, "↙": 135, "↖": 225,
-    # Common OCR confusions for "1" and "t" (top indicator often misread)
-    "1": 270, "t": 270, "T": 270,
-    # Right variants
-    "r": 0, "R": 0,
-    # Bottom variants
-    "v": 90, "V": 90, "^": 270,  # inverted caret sometimes
-    # Left variants
-    "l": 180, "L": 180,
-    # Corner indicators (OCR may read as numbers)
-    "7": 315, "9": 45, "3": 135, "1": 270,
-}
-
-
-def parse_shot_values(text: str) -> list[dict]:
-    """
-    Extract individual shot values and directions from PDF text.
-
-    Looks for patterns like:
-    - "Serie 1:" followed by shots like "10.4↑" or "9.5→" etc.
-    - Direction symbols: ↑ (top/270°), → (right/0°), ↓ (bottom/90°), ← (left/180°)
-    - Also handles OCR confusions: 1/t for top, numbers for corners
-
-    Returns list of dicts: [{"ring": 10.4, "angle": 270}, ...]
-    """
-    import math
-    import random
-
-    shots = []
-
-    # Pattern to find series sections with individual shots
-    # Looks for "Serie X:" followed by shot patterns like "10.4↑" or "9.5 1"
-    series_pattern = r"Serie\s+(\d+)[:\s]+(.+?)(?=Serie\s+\d+|Gesamt|Summe|$)"
-    series_matches = re.findall(series_pattern, text, re.IGNORECASE | re.DOTALL)
-
-    # Fallback: try to find any decimal ring values followed by direction indicators
-    if not series_matches:
-        # Generic pattern for ring + direction like "10.4↑" or "9.5→"
-        shot_pattern = r"(\d+\.?\d*)\s*([↑→↓←↗↘↙↖↔↕1tTlLrR7-9])"
-        all_shots = re.findall(shot_pattern, text)
-        if all_shots:
-            for ring_str, direction in all_shots:
-                try:
-                    ring = float(ring_str)
-                    angle = DIRECTION_SYMBOLS.get(direction, 0)
-                    shots.append({"ring": ring, "angle": angle})
-                except ValueError:
-                    pass
-
-    for series_num, series_content in series_matches:
-        # Find all shots in this series: "10.4↑" or "9.5" (no direction = center)
-        shot_pattern = r"(\d+\.?\d*)\s*([↑→↓←↗↘↙↖↔↕1tTlLrR7-9])?"
-        matches = re.findall(shot_pattern, series_content)
-
-        for ring_str, direction in matches:
-            try:
-                ring = float(ring_str)
-                if ring > 11:  # Invalid ring value
-                    continue
-                angle = DIRECTION_SYMBOLS.get(direction, 0) if direction else None
-                shots.append({
-                    "ring": ring,
-                    "angle": angle,
-                    "series": int(series_num)
-                })
-            except ValueError:
-                continue
-
-    return shots
-
-
-def calculate_shot_coordinates(shots: list[dict], jitter: float = 3.0) -> list[dict]:
-    """
-    Calculate X/Y coordinates from ring value and direction.
-
-    Radius (mm) = (10.9 - ring_value) * 2.1
-    X = radius * cos(angle)
-    Y = radius * sin(angle)
-    Adds ±jitter degrees random offset to prevent overlapping shots.
-    """
-    import math
-    import random
-
-    coordinates = []
-    for shot in shots:
-        ring = shot["ring"]
-        angle = shot.get("angle")
-
-        # Calculate radius from ring value
-        radius = (10.9 - ring) * 2.1  # mm
-
-        if angle is None:
-            # No direction = centered shot
-            angle = random.uniform(0, 360)
-            jittered = 0
-        else:
-            # Add random jitter ±jitter degrees
-            jittered = random.uniform(-jitter, jitter)
-            angle = angle + jittered
-
-        # Convert to radians (0° = right, counter-clockwise for Y flip)
-        rad = math.radians(angle)
-
-        # X/Y calculation (Y inverted for screen coordinates)
-        x = radius * math.cos(rad)
-        y = -radius * math.sin(rad)  # negative because screen Y is inverted
-
-        coordinates.append({
+    # HIER KOMMT DEINE REGEX: 
+    # Sucht in der PDF nach Zeilen wie "10.4 135" (Ringzahl und Grad)
+    # Passe den Regex an, falls deine Meyton PDF etwas anders formatiert ist.
+    # Beispiel: Sucht nach Dezimalzahl (1-10.9), gefolgt von Leerzeichen und Gradzahl (0-359)
+    shot_pattern = re.compile(r'([1-9]|10)\.\d\s+(\d{1,3})')
+    
+    matches = shot_pattern.findall(full_text)
+    
+    total = 0.0
+    for match in matches:
+        ring = float(match[0])
+        grad = float(match[1])
+        
+        # --- DEINE VORGEGEBENE METHODE ---
+        # 1. Radius berechnen (Luftgewehr: 2.5mm pro Ring, 10.9 ist Zentrum)
+        radius_mm = (10.9 - ring) * 2.5
+        
+        # 2. Grad in Bogenmaß umrechnen
+        theta = math.radians(grad)
+        
+        # 3. X und Y berechnen (0 Grad = Oben/12 Uhr -> sin für X, cos für Y)
+        # Wir multiplizieren mit 100, damit die App.py sie im Meyton-Standard (Hundertstel-mm) hat!
+        x_val = (radius_mm * math.sin(theta)) * 100
+        y_val = (radius_mm * math.cos(theta)) * 100
+        
+        data["coordinates"].append({
             "ring": ring,
-            "angle": angle,
-            "jitter": jittered,
-            "radius": radius,
-            "x": round(x, 2),
-            "y": round(y, 2)
+            "x": x_val,
+            "y": y_val
         })
+        total += ring
 
-    return coordinates
+    # Einfache 10er Serien-Bildung aus den Treffern
+    series = []
+    current_serie = 0.0
+    for i, shot in enumerate(data["coordinates"]):
+        current_serie += shot["ring"]
+        if (i + 1) % 10 == 0:
+            series.append(round(current_serie, 1))
+            current_serie = 0.0
+    if current_serie > 0:
+        series.append(round(current_serie, 1))
 
-
-def process_pdf_bytes(pdf_bytes: bytes) -> Dict[str, Any]:
-    """
-    Process PDF bytes directly without URL validation.
-    Downloads and parses a Meyton PDF.
-    """
-    text = extract_text_from_pdf(pdf_bytes)
-    data = parse_meyton_pdf(text)
-
-    # Extract shot details with directions
-    shots = parse_shot_values(text)
-    if shots:
-        data["shots"] = shots
-        data["coordinates"] = calculate_shot_coordinates(shots)
+    data["total_score"] = round(total, 1)
+    data["series"] = series
 
     return data
-
-
-def process_meyton_url(url: str) -> Dict[str, Any]:
-    """
-    Complete pipeline: Download PDF from URL and extract shooting data.
-
-    Args:
-        url: Meyton ESTA 5 QR code URL
-
-    Returns:
-        Dictionary with extracted shooting data
-    """
-    pdf_bytes = download_pdf(url)
-    return process_pdf_bytes(pdf_bytes)
