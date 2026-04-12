@@ -45,7 +45,7 @@ def scan_qr_code(img, debug: bool = False):
     return None, debug_img
 
 
-def create_target_figure(coordinates: list[dict]):
+def create_target_figure(coordinates: list[dict], width: int = 450, height: int = 450):
     """Create a Plotly figure showing a target with shot markers."""
     import plotly.graph_objects as go
     import numpy as np
@@ -137,8 +137,8 @@ def create_target_figure(coordinates: list[dict]):
             zeroline=False,
             visible=False
         ),
-        width=450,
-        height=450,
+        width=width,
+        height=height,
         plot_bgcolor="white",
         paper_bgcolor="white",
         margin=dict(l=0, r=0, t=30, b=0),
@@ -498,12 +498,21 @@ if shootings:
         columns=["ID", "Benutzer", "Datum", "Schütze", "Disziplin", "Gesamt", "Serien", "URL", "Koordinaten", "Erstellt"]
     )
 
+    # Auswahl für Detail-Ansicht
     col_show, col_del = st.columns([4, 1])
     with col_show:
-        st.dataframe(
-            df[["Datum", "Schütze", "Disziplin", "Gesamt"]],
-            use_container_width=True,
-            hide_index=True
+        st.markdown("**Ergebnis auswählen:**")
+        # Erstelle Auswahl-Optionen mit Datum, Schütze und Gesamt
+        options = {
+            row["ID"]: f"{row['Datum']} — {row['Schütze']} — {row['Gesamt']} Ringe"
+            for _, row in df.iterrows()
+        }
+        selected_id = st.selectbox(
+            "Ergebnis",
+            options=list(options.keys()),
+            format_func=lambda x: options[x],
+            label_visibility="collapsed",
+            key="selected_shooting_id"
         )
     with col_del:
         st.markdown("### Löschen")
@@ -518,6 +527,57 @@ if shootings:
             delete_shooting(int(delete_id), username)
             st.rerun()
 
+    # Detail-Ansicht für ausgewähltes Ergebnis
+    if selected_id:
+        selected_row = df[df["ID"] == selected_id].iloc[0]
+        coords_json = selected_row["Koordinaten"]
+        series_str = selected_row["Serien"]
+
+        # Koordinaten parsen
+        coords = None
+        if coords_json:
+            try:
+                coords = json.loads(coords_json)
+            except json.JSONDecodeError:
+                coords = None
+
+        with st.expander(f"📊 Detail-Ansicht: {selected_row['Schütze']} — {selected_row['Datum']}", expanded=True):
+            # Große Scheibe
+            if coords:
+                st.plotly_chart(
+                    create_target_figure(coords, width=550, height=550),
+                    use_container_width=True
+                )
+            else:
+                st.info("Keine Koordinaten-Daten verfügbar")
+
+            # Serien-Tabelle
+            st.markdown("#### Serien")
+            series_dict = parse_series_string(series_str) if series_str else {}
+            if series_dict:
+                # Baue DataFrame für Serien
+                series_data = []
+                for ser_num, shots in series_dict.items():
+                    series_data.append({
+                        "Serie": ser_num,
+                        "Schüsse": " / ".join(str(s) for s in shots),
+                        "Summe": sum(shots)
+                    })
+                series_df = pd.DataFrame(series_data)
+                st.dataframe(
+                    series_df,
+                    use_container_width=True,
+                    hide_index=True,
+                    column_config={
+                        "Serie": st.column_config.NumberColumn("Serie", width="small"),
+                        "Schüsse": st.column_config.TextColumn("Schüsse (Ringwerte)", width="medium"),
+                        "Summe": st.column_config.NumberColumn("Summe", width="small")
+                    }
+                )
+                st.markdown(f"**Gesamt: {selected_row['Gesamt']} Ringe**")
+            else:
+                st.info("Serien-Daten nicht verfügbar")
+
     # Entwicklung Chart
     if len(shootings) >= 2:
         st.header("Entwicklung der Ringzahl")
@@ -530,29 +590,6 @@ if shootings:
         )
         fig.update_layout(xaxis_title="Datum", yaxis_title="Ringe", legend_title="Schütze", height=400)
         st.plotly_chart(fig, use_container_width=True)
-
-    # Schussbild-Anzeige für letzten Import
-    if "last_saved_coordinates" in st.session_state and st.session_state.last_saved_coordinates:
-        st.divider()
-        shooter_name = st.session_state.get("last_saved_shooter", "Unbekannt")
-        total = st.session_state.get("last_saved_total", "?")
-        with st.expander(f"📊 Details anzeigen für {shooter_name} - {total} Ringe", expanded=False):
-            col_fig, col_table = st.columns([1, 1])
-            with col_fig:
-                coords = st.session_state.last_saved_coordinates
-                if coords:
-                    st.plotly_chart(create_target_figure(coords), use_container_width=True)
-            with col_table:
-                series_str = st.session_state.get("last_saved_series", "")
-                series_dict = parse_series_string(series_str)
-                if series_dict:
-                    st.markdown("**Serien-Übersicht:**")
-                    for ser_num, shots in series_dict.items():
-                        shots_str = ", ".join(str(s) for s in shots)
-                        st.markdown(f"- **Serie {ser_num}:** {shots_str}")
-                else:
-                    st.info("Serien-Daten nicht verfügbar")
-        st.session_state.last_saved_coordinates = None
 
 else:
     st.info("Noch keine Schießergebnisse gespeichert. Importiere ein Ergebnis über die URL oben.")
