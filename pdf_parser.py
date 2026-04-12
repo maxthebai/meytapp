@@ -8,9 +8,47 @@ import pdfplumber
 
 def download_pdf(url: str) -> bytes:
     """Download PDF from URL and return raw bytes."""
+    _validate_url(url)  # Security: prevent SSRF
     response = requests.get(url, timeout=30)
     response.raise_for_status()
     return response.content
+
+
+ALLOWED_HOSTS = [
+    "www.meyton.com",
+    "meyton.com",
+]
+
+
+def _validate_url(url: str) -> None:
+    """Validate URL to prevent SSRF attacks."""
+    from urllib.parse import urlparse
+    import ipaddress
+
+    parsed = urlparse(url)
+
+    # Only allow http/https
+    if parsed.scheme not in ("http", "https"):
+        raise ValueError(f"Invalid URL scheme: {parsed.scheme}. Only http/https allowed.")
+
+    # Validate host is allowed
+    host = parsed.hostname
+    if not host:
+        raise ValueError("Invalid URL: no hostname found.")
+
+    # Check against allowed hosts
+    if host not in ALLOWED_HOSTS:
+        raise ValueError(f"Host '{host}' is not allowed. Only Meyton URLs accepted.")
+
+    # Resolve IP and check against private/internal ranges
+    try:
+        import socket
+        ip_str = socket.gethostbyname(host)
+        ip = ipaddress.ip_address(ip_str)
+        if ip.is_private or ip.is_loopback or ip.is_reserved:
+            raise ValueError(f"Cannot access private/internal IP: {ip_str}")
+    except socket.gaierror:
+        raise ValueError(f"Could not resolve hostname: {host}")
 
 
 def extract_text_from_pdf(pdf_bytes: bytes) -> str:
