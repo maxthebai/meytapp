@@ -226,19 +226,13 @@ authenticator = st.session_state.authenticator
 
 # ── Authentication ────────────────────────────────────────────────────────────
 
-# Cookie-Authentifizierung prüfen (auf jedem Page-Load)
-if st.session_state.get("authentication_status") is None:
-    cookie_result = authenticator.login(location="unrendered")
-    if cookie_result:
-        st.session_state.name, st.session_state.authentication_status, st.session_state.username = cookie_result
-
 # Login / Register tabs - only shown when not authenticated
 if st.session_state.get("authentication_status") is None or st.session_state.get("authentication_status") is False:
     tab_login, tab_register = st.columns(2)
 
     with tab_login:
         st.subheader("Anmelden")
-        login_result = authenticator.login(
+        authenticator.login(
             location="main",
             max_login_attempts=5,
             fields={
@@ -248,8 +242,6 @@ if st.session_state.get("authentication_status") is None or st.session_state.get
                 'Login': 'Anmelden',
             }
         )
-        if login_result:
-            st.session_state.name, st.session_state.authentication_status, st.session_state.username = login_result
 
     with tab_register:
         st.subheader("Neuen Account erstellen")

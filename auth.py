@@ -1,5 +1,4 @@
 import yaml
-import os
 from pathlib import Path
 import streamlit_authenticator as st_auth
 from streamlit_authenticator import Hasher, Authenticate
@@ -14,8 +13,8 @@ def _get_default_config() -> dict:
     """Return the default credentials/config structure."""
     return {
         "cookie": {
-            "name": "meytapp_auth",
-            "key": "meytapp_secret_key_change_in_production_abc123",
+            "name": "meyton_app_auth_cookie",
+            "key": "ein_geheimer_schluessel_123",
             "expiry_days": 30.0,
         },
         "credentials": {
@@ -38,8 +37,8 @@ def init_auth() -> Authenticate:
 
     authenticator = Authenticate(
         credentials=credentials,
-        cookie_name="meytapp_auth",
-        cookie_key="meytapp_secret_key_change_in_production_abc123",
+        cookie_name="meyton_app_auth_cookie",
+        cookie_key="ein_geheimer_schluessel_123",
         cookie_expiry_days=30,
         auto_hash=True,
     )
