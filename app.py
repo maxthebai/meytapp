@@ -504,7 +504,7 @@ if shootings:
         st.markdown("**Ergebnis auswählen:**")
         # Erstelle Auswahl-Optionen mit Datum, Schütze und Gesamt
         options = {
-            row["ID"]: f"{row['Datum']} — {row['Schütze']} — {row['Gesamt']} Ringe"
+            row["ID"]: f"{row['Datum']} — {row['Schütze']} ({row['Disziplin']}) — {row['Gesamt']} Ringe"
             for _, row in df.iterrows()
         }
         selected_id = st.selectbox(
@@ -541,7 +541,9 @@ if shootings:
             except json.JSONDecodeError:
                 coords = None
 
-        with st.expander(f"📊 Detail-Ansicht: {selected_row['Schütze']} — {selected_row['Datum']}", expanded=True):
+        with st.expander(f"📊 Detail-Ansicht: {selected_row['Schütze']} ({selected_row['Disziplin']}) — {selected_row['Datum']}", expanded=True):
+            st.markdown(f"**Disziplin:** {selected_row['Disziplin']}  |  **Gesamt:** {selected_row['Gesamt']} Ringe")
+
             # Große Scheibe
             if coords:
                 st.plotly_chart(
