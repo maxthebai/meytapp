@@ -52,10 +52,9 @@ def create_target_figure(coordinates: list[dict]):
 
     fig = go.Figure()
 
-    # Draw target rings (10 rings, each 21mm diameter increment)
-    ring_radius_full = 10.9 * 2.1  # Max radius in mm (10 ring = 10.9 on scale)
+    # Draw target rings (10 rings)
+    ring_radius_full = 10.9 * 2.1  # Max radius in mm
     for i in range(10, 0, -1):
-        # Ring border
         ring_r = (11 - i) * 2.1  # Radius of this ring
         theta = np.linspace(0, 2 * np.pi, 100)
         x_ring = ring_r * np.cos(theta)
@@ -69,45 +68,46 @@ def create_target_figure(coordinates: list[dict]):
             hoverinfo="skip"
         ))
 
-    # Draw outer circle (target boundary)
-    outer_r = ring_radius_full
+    # Draw outer circle
     theta = np.linspace(0, 2 * np.pi, 100)
     fig.add_trace(go.Scatter(
-        x=outer_r * np.cos(theta),
-        y=outer_r * np.sin(theta),
+        x=ring_radius_full * np.cos(theta),
+        y=ring_radius_full * np.sin(theta),
         mode="lines",
         line=dict(color="black", width=2),
         showlegend=False,
         hoverinfo="skip"
     ))
 
-    # Draw crosshairs (horizontal and vertical lines)
-    fig.add_trace(go.Scatter(
-        x=[-outer_r, outer_r], y=[0, 0],
-        mode="lines", line=dict(color="gray", width=0.5, dash="dash"),
-        showlegend=False, hoverinfo="skip"
-    ))
-    fig.add_trace(go.Scatter(
-        x=[0, 0], y=[-outer_r, outer_r],
-        mode="lines", line=dict(color="gray", width=0.5, dash="dash"),
-        showlegend=False, hoverinfo="skip"
-    ))
+    # Add ring numbers (1-10) on the rings
+    for i in range(1, 11):
+        ring_r = (11 - i) * 2.1 + (2.1 / 2)  # Middle of each ring
+        # Place number at top of ring (270 degrees)
+        x_text = ring_r * np.cos(np.radians(270))
+        y_text = ring_r * np.sin(np.radians(270))
+        fig.add_trace(go.Scatter(
+            x=[x_text], y=[y_text],
+            mode="text",
+            text=[str(i)],
+            textfont=dict(size=10, color="black"),
+            showlegend=False,
+            hoverinfo="skip"
+        ))
 
     # Draw shot markers
     for shot in coordinates:
         x, y = shot["x"], shot["y"]
         ring = shot["ring"]
-        # Color based on ring value (10=gold, 9=blue, 8=black, 7-6=red, <6=orange)
         if ring >= 10:
-            color = "#FFD700"  # Gold
+            color = "#FFD700"
         elif ring >= 9:
-            color = "#4169E1"  # Royal blue
+            color = "#4169E1"
         elif ring >= 8:
-            color = "#000000"  # Black
+            color = "#000000"
         elif ring >= 7:
-            color = "#FF0000"  # Red
+            color = "#FF0000"
         else:
-            color = "#FFA500"  # Orange
+            color = "#FFA500"
 
         fig.add_trace(go.Scatter(
             x=[x], y=[y],
@@ -118,34 +118,55 @@ def create_target_figure(coordinates: list[dict]):
             showlegend=False
         ))
 
-    # Set consistent axis scale and styling
-    max_range = outer_r * 1.1
+    # Clean layout - no grid, no axis labels
+    max_range = ring_radius_full * 1.15
     fig.update_layout(
         xaxis=dict(
             range=[-max_range, max_range],
             scaleanchor="y",
             scaleratio=1,
-            showgrid=True,
-            gridcolor="lightgray",
+            showgrid=False,
+            showticklabels=False,
             zeroline=False,
-            title="X (mm)"
+            visible=False
         ),
         yaxis=dict(
             range=[-max_range, max_range],
-            showgrid=True,
-            gridcolor="lightgray",
+            showgrid=False,
+            showticklabels=False,
             zeroline=False,
-            title="Y (mm)"
+            visible=False
         ),
-        width=500,
-        height=500,
+        width=450,
+        height=450,
         plot_bgcolor="white",
         paper_bgcolor="white",
-        title="Zielscheibe (10 Ringe)",
-        title_x=0.5
+        margin=dict(l=0, r=0, t=30, b=0),
     )
 
     return fig
+
+
+def parse_series_string(series_str: str) -> dict[int, list]:
+    """
+    Parse series string like '10.4,9.5,8.7,7.6,10.1,9.8,8.9,7.5,10.2,9.9'
+    into a dict grouped by series (usually 10 shots per series).
+    Returns: {1: [10.4, 9.5, ...], 2: [10.1, 9.8, ...], ...}
+    """
+    if not series_str:
+        return {}
+    try:
+        shots = [float(x.strip()) for x in series_str.split(",")]
+    except ValueError:
+        return {}
+
+    # Meyton typically has 10 shots per series
+    shots_per_series = 10
+    series_dict = {}
+    for i in range(0, len(shots), shots_per_series):
+        series_num = i // shots_per_series + 1
+        series_dict[series_num] = shots[i:i + shots_per_series]
+    return series_dict
 
 
 def init_session():
@@ -180,6 +201,8 @@ def import_result(url: str, user_id: str):
                 )
                 st.session_state.last_saved_coordinates = data.get("coordinates", [])
                 st.session_state.last_saved_shooter = data["shooter"]
+                st.session_state.last_saved_series = series_str
+                st.session_state.last_saved_total = data["total_score"]
                 st.success(f"Ergebnis für {data['shooter']} wurde gespeichert!")
                 st.balloons()
                 return True
@@ -451,6 +474,8 @@ with tab3:
                     )
                     st.session_state.last_saved_coordinates = data.get("coordinates", [])
                     st.session_state.last_saved_shooter = data["shooter"]
+                    st.session_state.last_saved_series = series_str
+                    st.session_state.last_saved_total = data["total_score"]
                     st.success(f"Ergebnis für {data['shooter']} wurde gespeichert!")
                     st.balloons()
                 else:
@@ -473,46 +498,17 @@ if shootings:
         columns=["ID", "Benutzer", "Datum", "Schütze", "Disziplin", "Gesamt", "Serien", "URL", "Koordinaten", "Erstellt"]
     )
 
-    df_display = df.copy()
-    df_display["Serien"] = df_display["Serien"].apply(
-        lambda x: x if len(str(x)) <= 20 else str(x)[:20] + "..."
-    )
-
     col_show, col_del = st.columns([4, 1])
     with col_show:
         st.dataframe(
-            df_display[["Datum", "Schütze", "Disziplin", "Gesamt", "Serien"]],
+            df[["Datum", "Schütze", "Disziplin", "Gesamt"]],
             use_container_width=True,
             hide_index=True
         )
-
-    if len(shootings) >= 2:
-        st.header("Entwicklung der Ringzahl")
-
-        df_chart = df.copy()
-        df_chart["Datum"] = pd.to_datetime(df_chart["Datum"], errors="coerce")
-        df_chart = df_chart.sort_values("Datum")
-
-        fig = px.line(
-            df_chart,
-            x="Datum",
-            y="Gesamt",
-            color="Schütze",
-            markers=True,
-            title="Gesamtringzahl über die Zeit"
-        )
-        fig.update_layout(
-            xaxis_title="Datum",
-            yaxis_title="Ringe",
-            legend_title="Schütze",
-            height=400
-        )
-        st.plotly_chart(fig, use_container_width=True)
-
     with col_del:
         st.markdown("### Löschen")
         delete_id = st.number_input(
-            "ID zum Löschen",
+            "ID",
             min_value=1,
             max_value=int(df["ID"].max()) if len(df) > 0 else 1,
             step=1,
@@ -522,13 +518,42 @@ if shootings:
             delete_shooting(int(delete_id), username)
             st.rerun()
 
-    # Show target plot for last saved shooting
+    # Entwicklung Chart
+    if len(shootings) >= 2:
+        st.header("Entwicklung der Ringzahl")
+        df_chart = df.copy()
+        df_chart["Datum"] = pd.to_datetime(df_chart["Datum"], errors="coerce")
+        df_chart = df_chart.sort_values("Datum")
+        fig = px.line(
+            df_chart, x="Datum", y="Gesamt", color="Schütze",
+            markers=True, title="Gesamtringzahl über die Zeit"
+        )
+        fig.update_layout(xaxis_title="Datum", yaxis_title="Ringe", legend_title="Schütze", height=400)
+        st.plotly_chart(fig, use_container_width=True)
+
+    # Schussbild-Anzeige für letzten Import
     if "last_saved_coordinates" in st.session_state and st.session_state.last_saved_coordinates:
-        st.header(f"Schussbild: {st.session_state.get('last_saved_shooter', 'Unbekannt')}")
-        coords = st.session_state.last_saved_coordinates
-        if coords:
-            st.plotly_chart(create_target_figure(coords), use_container_width=True)
+        st.divider()
+        shooter_name = st.session_state.get("last_saved_shooter", "Unbekannt")
+        total = st.session_state.get("last_saved_total", "?")
+        with st.expander(f"📊 Details anzeigen für {shooter_name} - {total} Ringe", expanded=False):
+            col_fig, col_table = st.columns([1, 1])
+            with col_fig:
+                coords = st.session_state.last_saved_coordinates
+                if coords:
+                    st.plotly_chart(create_target_figure(coords), use_container_width=True)
+            with col_table:
+                series_str = st.session_state.get("last_saved_series", "")
+                series_dict = parse_series_string(series_str)
+                if series_dict:
+                    st.markdown("**Serien-Übersicht:**")
+                    for ser_num, shots in series_dict.items():
+                        shots_str = ", ".join(str(s) for s in shots)
+                        st.markdown(f"- **Serie {ser_num}:** {shots_str}")
+                else:
+                    st.info("Serien-Daten nicht verfügbar")
         st.session_state.last_saved_coordinates = None
+
 else:
     st.info("Noch keine Schießergebnisse gespeichert. Importiere ein Ergebnis über die URL oben.")
 
