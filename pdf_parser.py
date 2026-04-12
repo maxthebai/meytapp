@@ -14,18 +14,15 @@ def download_pdf(url: str) -> bytes:
     return response.content
 
 
-ALLOWED_HOSTS = [
-    "www.meyton.com",
-    "meyton.com",
-]
-ALLOWED_IP = "195.201.88.185"
-ALLOWED_PATH_PREFIX = "print_"
-
-
 def _validate_url(url: str) -> None:
-    """Validate URL to prevent SSRF attacks."""
-    from urllib.parse import urlparse
-    import ipaddress
+    """
+    Validate URL to ensure it's a legitimate Meyton PDF URL.
+    Accepts URLs that:
+    - Contain /esta5/ in the path
+    - Have a filename starting with 'print_' and ending with '.pdf'
+    - Contain query parameters like 'id=' or 'key='
+    """
+    from urllib.parse import urlparse, parse_qs
 
     parsed = urlparse(url)
 
@@ -37,24 +34,40 @@ def _validate_url(url: str) -> None:
     if not host:
         raise ValueError("Invalid URL: no hostname found.")
 
-    # Check if host is allowed (either domain or specific IP)
+    path = parsed.path.lower()
+    query = parsed.query.lower()
+
+    # Check if URL matches Meyton PDF patterns
+    is_meyton_url = False
+
+    # Pattern 1: Contains /esta5/ folder
+    if "/esta5/" in path:
+        is_meyton_url = True
+
+    # Pattern 2: Filename starts with print_ and ends with .pdf
+    if path.startswith("/print_") and path.endswith(".pdf"):
+        is_meyton_url = True
+
+    # Pattern 3: Contains id= or key= parameters (common for dynamic URLs)
+    if "id=" in query or "key=" in query:
+        is_meyton_url = True
+
+    if not is_meyton_url:
+        raise ValueError(
+            "Ungültige Meyton-URL. Die URL muss /esta5/ enthalten, "
+            "mit 'print_' beginnen und auf '.pdf' enden, "
+            "oder id=/key= Parameter haben."
+        )
+
+    # Resolve IP and check it's not a private/internal range
     try:
+        import socket
         ip_str = socket.gethostbyname(host)
+        ip = ipaddress.ip_address(ip_str)
+        if ip.is_private or ip.is_loopback or ip.is_reserved:
+            raise ValueError(f"Cannot access private/internal IP: {ip_str}")
     except socket.gaierror:
         raise ValueError(f"Could not resolve hostname: {host}")
-
-    # Allow specific IP with path prefix
-    if ip_str == ALLOWED_IP and parsed.path.startswith("/" + ALLOWED_PATH_PREFIX):
-        return  # Valid Meyton server URL
-
-    # Check against allowed hosts
-    if host not in ALLOWED_HOSTS:
-        raise ValueError(f"Host '{host}' is not allowed. Only Meyton URLs accepted.")
-
-    # Check resolved IP is not private/internal
-    ip = ipaddress.ip_address(ip_str)
-    if ip.is_private or ip.is_loopback or ip.is_reserved:
-        raise ValueError(f"Cannot access private/internal IP: {ip_str}")
 
 
 def extract_text_from_pdf(pdf_bytes: bytes) -> str:
