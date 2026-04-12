@@ -238,8 +238,46 @@ authenticator.login(
     }
 )
 
-# Zeige Tabs nur wenn nicht authentifiziert
-if st.session_state.get("authentication_status") is None:
+auth_status = st.session_state.get("authentication_status")
+
+if auth_status is True:
+    # Eingeloggt - App anzeigen
+    username = st.session_state.username
+    user_name = st.session_state.name
+
+    st.title(f"🎯 Meytapp - Willkommen, {user_name}!")
+    st.markdown(f"Angemeldet als **{username}**.")
+    authenticator.logout(location="sidebar")
+    st.divider()
+
+elif auth_status is False:
+    # Login fehlgeschlagen
+    st.error("Benutzername oder Passwort falsch.")
+    tab_login, tab_register = st.tabs(["Anmelden", "Registrieren"])
+
+    with tab_login:
+        st.info("Bitte erneut anmelden.")
+
+    with tab_register:
+        authenticator.register_user(
+            location="main",
+            pre_authorized=None,
+            captcha=False,
+            merge_username_email=True,
+            fields={
+                'Form name': 'Registrieren',
+                'First name': 'Vorname',
+                'Last name': 'Nachname',
+                'Email': 'E-Mail',
+                'Password': 'Passwort',
+                'Repeat password': 'Passwort wiederholen',
+                'Register': 'Account erstellen',
+            }
+        )
+    st.stop()
+
+elif auth_status is None:
+    # Erster Aufruf - Tabs anzeigen
     tab_login, tab_register = st.tabs(["Anmelden", "Registrieren"])
 
     with tab_login:
@@ -261,15 +299,7 @@ if st.session_state.get("authentication_status") is None:
                 'Register': 'Account erstellen',
             }
         )
-
-# Logged-in state
-username = st.session_state.username
-user_name = st.session_state.name
-
-st.title(f"🎯 Meytapp - Willkommen, {user_name}!")
-st.markdown(f"Angemeldet als **{username}**.")
-authenticator.logout(location="sidebar")
-st.divider()
+    st.stop()
 
 # ── Main App ───────────────────────────────────────────────────────────────────
 
