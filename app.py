@@ -6,7 +6,7 @@ from database import init_db, save_shooting, get_all_shootings, delete_shooting
 from pdf_parser import process_pdf_bytes
 from auth import init_auth
 
-st.set_page_config(page_title="Meytapp Pro 🎯", layout="wide")
+st.set_page_config(page_title="Meytapp🎯", layout="wide")
 init_db()
 
 if "authenticator" not in st.session_state:
