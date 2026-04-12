@@ -226,15 +226,9 @@ authenticator = st.session_state.authenticator
 
 # ── Authentication ────────────────────────────────────────────────────────────
 
-if "authentication_status" not in st.session_state:
-    st.session_state.authentication_status = None
-if "username" not in st.session_state:
-    st.session_state.username = None
-if "name" not in st.session_state:
-    st.session_state.name = None
-
 # Login / Register tabs - only shown when not authenticated
-if st.session_state.authentication_status is None or st.session_state.authentication_status is False:
+auth_status = st.session_state.get("authentication_status")
+if auth_status is None or auth_status is False:
     tab_login, tab_register = st.columns(2)
 
     with tab_login:
