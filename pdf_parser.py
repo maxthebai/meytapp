@@ -109,7 +109,7 @@ def process_pdf_bytes(pdf_bytes):
         if ring_int >= 10:
             radius = max(0.0, inner_radius + (10.9 - ring) * ring_step)
         else:
-            radius = inner_radius + (10 - ring_int) * ring_step
+            radius = max(0.0, inner_radius + (10.9 - ring) * ring_step)
 
         theta = math.radians(angle_clock)
         x = round(radius * math.sin(theta), 2)
