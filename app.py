@@ -227,11 +227,10 @@ authenticator = st.session_state.authenticator
 # ── Authentication ────────────────────────────────────────────────────────────
 
 # Login / Register tabs - only shown when not authenticated
-if st.session_state.get("authentication_status") is None or st.session_state.get("authentication_status") is False:
-    tab_login, tab_register = st.columns(2)
+if not st.session_state.get("authentication_status"):
+    tab_login, tab_register = st.tabs(["Anmelden", "Registrieren"])
 
     with tab_login:
-        st.subheader("Anmelden")
         authenticator.login(
             location="main",
             max_login_attempts=5,
@@ -246,7 +245,7 @@ if st.session_state.get("authentication_status") is None or st.session_state.get
     with tab_register:
         st.subheader("Neuen Account erstellen")
         try:
-            reg_result = authenticator.register_user(
+            authenticator.register_user(
                 location="main",
                 pre_authorized=None,
                 captcha=False,
@@ -261,44 +260,9 @@ if st.session_state.get("authentication_status") is None or st.session_state.get
                     'Register': 'Account erstellen',
                 }
             )
-            # After successful registration, automatically log in the user
-            if reg_result and reg_result[0] is not None:
-                email = reg_result[0]
-                username_reg = reg_result[1]
-                name_reg = reg_result[2]
-                # Get password from form input - use the same fields structure
-                st.session_state.reg_email = email
-                st.session_state.reg_username = username_reg
-                st.session_state.reg_name = name_reg
         except Exception as e:
             st.error(f"Fehler: {e}")
 
-    # Auto-login after registration
-    if "reg_email" in st.session_state and st.session_state.get("reg_email"):
-        email = st.session_state.reg_email
-        # Show login form for re-authentication with password
-        st.subheader("Bitte Passwort zur Bestätigung eingeben")
-        confirm_password = st.text_input("Passwort", type="password", key="confirm_password")
-        if st.button("Anmelden", type="primary"):
-            # Use the authenticator's authentication controller to log in
-            if st.session_state.authenticator.authentication_controller.login(
-                email, confirm_password, max_login_attempts=5
-            ):
-                st.session_state.name = st.session_state.reg_name
-                st.session_state.authentication_status = True
-                st.session_state.username = st.session_state.reg_username
-                # Clean up registration state
-                for key in ['reg_email', 'reg_username', 'reg_name', 'confirm_password']:
-                    if key in st.session_state:
-                        del st.session_state[key]
-                st.rerun()
-            else:
-                st.error("Passwort falsch. Bitte versuche es erneut.")
-        st.stop()
-
-if st.session_state.authentication_status is False:
-    st.error("Benutzername oder Passwort falsch.")
-elif st.session_state.authentication_status is None:
     st.stop()
 
 # Logged-in state
