@@ -23,7 +23,6 @@ if st.session_state.get("authentication_status") is not True:
 
 
 def recalc_shots(stored, discipline):
-    """Koordinaten immer frisch aus Ring + gespeichertem Winkel berechnen."""
     if "Pistole" in discipline:
         ring_step = 8.0
         inner_radius = 5.5
@@ -35,14 +34,12 @@ def recalc_shots(stored, discipline):
     for s in stored:
         ring = s['ring']
         angle_clock = math.degrees(math.atan2(s['x'], s['y'])) % 360
-
         floor_r = math.floor(ring)
         frac = ring - floor_r
         outer = inner_radius + (10 - floor_r) * ring_step
         inner_r = (inner_radius + (10 - (floor_r + 1)) * ring_step) if floor_r < 10 else 0.0
         frac_safe = 0.05 + (frac / 0.9) * 0.90
         radius = outer - frac_safe * (outer - inner_r)
-
         theta = math.radians(angle_clock)
         shots.append({
             'ring': ring,
@@ -75,7 +72,6 @@ def render_target(shots, discipline="Luftgewehr", zoom=1.0):
                                 facecolor='black' if is_black else 'white',
                                 edgecolor='white' if is_black else 'black',
                                 linewidth=0.5, zorder=ring_num))
-
     for s in shots:
         x, y, ring = s['x'], s['y'], s['ring']
         c = 'red' if ring >= 10.0 else ('yellow' if ring >= 9.0 else ('white' if ring >= spiegel_ab else 'black'))
@@ -111,34 +107,47 @@ with t_imp:
 with t_his:
     res = get_all_shootings(st.session_state.username)
     if res:
-        df = pd.DataFrame(res, columns=["ID", "User", "Datum", "Schütze", "Disp", "Gesamt", "Serien", "URL", "Coords", "Time"])
-        st.dataframe(df[["ID", "Datum", "Disp", "Gesamt"]].sort_values("ID", ascending=False), use_container_width=True, hide_index=True)
-        del_id = st.number_input("ID zum Löschen", min_value=0, step=1)
+        # Fortlaufende Nummer statt DB-ID anzeigen
+        df = pd.DataFrame(res, columns=["db_id", "User", "Datum", "Schütze", "Disp", "Gesamt", "Serien", "URL", "Coords", "Time"])
+        df = df.sort_values("db_id", ascending=False).reset_index(drop=True)
+        df.insert(0, "Nr", range(1, len(df) + 1))
+        st.dataframe(df[["Nr", "Datum", "Disp", "Gesamt"]], use_container_width=True, hide_index=True)
+
+        del_nr = st.number_input("Nr. zum Löschen", min_value=1, max_value=len(df), step=1)
         if st.button("Löschen"):
-            delete_shooting(del_id, st.session_state.username); st.rerun()
+            db_id = int(df[df["Nr"] == del_nr]["db_id"].values[0])
+            delete_shooting(db_id, st.session_state.username)
+            st.rerun()
 
 with t_ver:
     if res:
-        df = pd.DataFrame(res, columns=["ID", "User", "Datum", "Schütze", "Disp", "Gesamt", "Serien", "URL", "Coords", "Time"])
-        df["Datum"] = pd.to_datetime(df["Datum"], dayfirst=True).dt.date
+        df2 = pd.DataFrame(res, columns=["db_id", "User", "Datum", "Schütze", "Disp", "Gesamt", "Serien", "URL", "Coords", "Time"])
+        df2["Datum"] = pd.to_datetime(df2["Datum"], dayfirst=True).dt.date
         import plotly.express as px
-        st.plotly_chart(px.line(df.sort_values("Datum"), x="Datum", y="Gesamt", markers=True), use_container_width=True)
+        st.plotly_chart(px.line(df2.sort_values("Datum"), x="Datum", y="Gesamt", markers=True), use_container_width=True)
 
 with t_det:
     if res:
-        choice = st.selectbox("Auswahl", [r[0] for r in res], format_func=lambda x: f"ID {x}")
-        row = next(r for r in res if r[0] == choice)
-        discipline = row[4]
+        # Auswahl per fortlaufender Nummer
+        df3 = pd.DataFrame(res, columns=["db_id", "User", "Datum", "Schütze", "Disp", "Gesamt", "Serien", "URL", "Coords", "Time"])
+        df3 = df3.sort_values("db_id", ascending=False).reset_index(drop=True)
+        df3.insert(0, "Nr", range(1, len(df3) + 1))
+
+        nr_options = df3["Nr"].tolist()
+        choice_nr = st.selectbox("Auswahl", nr_options,
+                                 format_func=lambda n: f"#{n} – {df3[df3['Nr']==n]['Datum'].values[0]} – {df3[df3['Nr']==n]['Gesamt'].values[0]} Ringe")
+        row = df3[df3["Nr"] == choice_nr].iloc[0]
+        discipline = row["Disp"]
 
         zoom = st.slider("🔍 Zoom", min_value=1.0, max_value=8.0, value=1.0, step=0.5)
 
-        stored = json.loads(row[8])
+        stored = json.loads(row["Coords"])
         shots = recalc_shots(stored, discipline)
 
         c_p, c_i = st.columns([2, 1])
         with c_p:
             st.pyplot(render_target(shots, discipline, zoom=zoom))
         with c_i:
-            st.metric("Gesamt", row[5])
+            st.metric("Gesamt", row["Gesamt"])
             st.write(f"Waffe: {discipline}")
-            st.write(f"Serien: {row[6]}")
+            st.write(f"Serien: {row['Serien']}")
