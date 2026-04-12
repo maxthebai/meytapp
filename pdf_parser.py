@@ -105,11 +105,8 @@ def process_pdf_bytes(pdf_bytes):
         ring = rings[i]
         angle_clock = arrows[i]["angle"]
 
-        ring_int = int(ring)
-        if ring_int >= 10:
-            radius = max(0.0, inner_radius + (10.9 - ring) * ring_step)
-        else:
-            radius = inner_radius + (10 - ring_int) * ring_step
+        # Dezimalwert verwenden: 9.9 liegt näher am Zentrum als 9.0
+        radius = max(0.0, inner_radius + (10.9 - ring) * ring_step)
             
         theta = math.radians(angle_clock)
         x = round(radius * math.sin(theta), 2)
