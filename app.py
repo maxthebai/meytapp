@@ -7,6 +7,37 @@ from pdf_parser import process_meyton_url
 from auth import init_auth
 
 
+def scan_qr_code(img) -> str | None:
+    """
+    Scan QR code from image using pyzbar with preprocessing.
+    Returns the decoded data or None if no QR code found.
+    """
+    import cv2
+    import numpy as np
+    from pyzbar.pyzbar import decode
+
+    # Convert to grayscale for better detection
+    gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+
+    # Apply adaptive thresholding to enhance contrast
+    thresh = cv2.adaptiveThreshold(
+        gray, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C, cv2.THRESH_BINARY, 11, 2
+    )
+
+    # Optional: sharpen the image
+    kernel = np.array([[-1, -1, -1], [-1, 9, -1], [-1, -1, -1]])
+    sharpened = cv2.filter2D(thresh, -1, kernel)
+
+    # Try decoding on both original grayscale and sharpened
+    for processed in [gray, sharpened]:
+        decoded = decode(processed)
+        for symbol in decoded:
+            data = symbol.data.decode("utf-8")
+            if data:
+                return data
+    return None
+
+
 def init_session():
     """Initialize session state variables."""
     if "authenticator" not in st.session_state:
@@ -203,8 +234,7 @@ with tab2:
             import numpy as np
             file_bytes = np.frombuffer(uploaded_file.read(), dtype=np.uint8)
             img = cv2.imdecode(file_bytes, cv2.IMREAD_COLOR)
-            detector = cv2.QRCodeDetector()
-            data, _, _ = detector.detectAndDecode(img)
+            data = scan_qr_code(img)
             if data and "esta" in data.lower():
                 st.session_state.qr_result = data
             elif data:
@@ -225,8 +255,7 @@ with tab2:
             class QRVideoProcessor(VideoProcessorBase):
                 def recv(self, frame):
                     img = frame.to_ndarray(format="bgr24")
-                    detector = cv2.QRCodeDetector()
-                    data, _, _ = detector.detectAndDecode(img)
+                    data = scan_qr_code(img)
                     if data and "esta" in data.lower():
                         st.session_state.qr_queue.put(data)
                     return frame

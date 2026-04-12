@@ -1,5 +1,4 @@
 streamlit
-streamlit
 streamlit-webrtc
 streamlit-authenticator
 pdfplumber
@@ -7,5 +6,6 @@ requests
 plotly
 zxing
 opencv-python-headless
+pyzbar
 PyYAML
 bcrypt
