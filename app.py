@@ -23,19 +23,23 @@ if st.session_state.get("authentication_status") is not True:
 # --- GRAFIK FUNKTION ---
 def render_target(shots, discipline="Luftgewehr"):
     fig, ax = plt.subplots(figsize=(5, 5))
-    
+
     if "Pistole" in discipline:
-        radii = {1:77.75, 2:69.75, 3:61.75, 4:53.75, 5:45.75, 6:37.75, 7:29.75, 8:21.75, 9:13.75, 10:5.75}
+        ring_step = 8.0
+        inner_radius = 5.5
         spiegel_ab = 7
-        limit = 82
+        limit = 86
     else:
-        radii = {1:22.75, 2:20.25, 3:17.75, 4:15.25, 5:12.75, 6:10.25, 7:7.75, 8:5.25, 9:2.75, 10:0.5}
+        ring_step = 2.5
+        inner_radius = 0.5
         spiegel_ab = 4
-        limit = 25
+        limit = 26
+
+    radii = {n: inner_radius + (10 - n) * ring_step for n in range(1, 11)}
 
     for ring_num in sorted(radii.keys()):
         val = radii[ring_num]
-        is_black = ring_num >= spiegel_ab and ring_num < 10
+        is_black = spiegel_ab <= ring_num < 10
         facecolor = 'black' if is_black else 'white'
         edgecolor = 'white' if is_black else 'black'
         ax.add_patch(plt.Circle((0, 0), val, facecolor=facecolor, edgecolor=edgecolor, linewidth=0.5, zorder=ring_num))
@@ -43,8 +47,7 @@ def render_target(shots, discipline="Luftgewehr"):
     for s in shots:
         x, y, ring = s['x'], s['y'], s['ring']
         c = 'red' if ring >= 10.0 else ('yellow' if ring >= 9.0 else ('white' if ring >= spiegel_ab else 'black'))
-        edge = 'black'
-        ax.scatter(x, y, color=c, edgecolors=edge, s=55, linewidths=0.5, alpha=0.95, zorder=20)
+        ax.scatter(x, y, color=c, edgecolors='black', s=55, linewidths=0.5, alpha=0.95, zorder=20)
 
     ax.set_xlim(-limit, limit); ax.set_ylim(-limit, limit); ax.set_aspect('equal'); ax.axis('off')
     fig.patch.set_facecolor('#1a1a1a')
@@ -62,13 +65,13 @@ with t_imp:
     with c2:
         st.write("### QR Scan")
         cam = st.camera_input("Scanner", label_visibility="collapsed")
-    
+
     st.divider()
-    
+
     up_pdf = st.file_uploader("Meyton PDF hochladen", type="pdf")
     if st.button("PDF importieren") and up_pdf:
         data = process_pdf_bytes(up_pdf.read())
-        save_shooting(st.session_state.username, data["date"], data["shooter"], data["discipline"], 
+        save_shooting(st.session_state.username, data["date"], data["shooter"], data["discipline"],
                       data["total_score"], ",".join(map(str, data["series"])), None, json.dumps(data["coordinates"]))
         st.toast(f"✅ Import erfolgreich! {data['shooter']} – {data['total_score']} Ringe ({len(data['coordinates'])} Schüsse)", icon="🎯")
         st.rerun()
@@ -78,7 +81,7 @@ with t_his:
     if res:
         df = pd.DataFrame(res, columns=["ID", "User", "Datum", "Schütze", "Disp", "Gesamt", "Serien", "URL", "Coords", "Time"])
         st.dataframe(df[["ID", "Datum", "Disp", "Gesamt"]].sort_values("ID", ascending=False), use_container_width=True, hide_index=True)
-        
+
         del_id = st.number_input("ID zum Löschen", min_value=0, step=1)
         if st.button("Löschen"):
             delete_shooting(del_id, st.session_state.username); st.rerun()
