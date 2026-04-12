@@ -9,7 +9,7 @@ from auth import init_auth
 
 def scan_qr_code(img, debug: bool = False):
     """
-    Scan QR code from image using pyzbar with light preprocessing.
+    Scan QR code from image using pyzbar with preprocessing for Moiré reduction.
     Returns (data, debug_image) tuple. debug_image is None if QR found.
     """
     import cv2
@@ -18,19 +18,17 @@ def scan_qr_code(img, debug: bool = False):
 
     gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
 
-    # Strategies to try in order: original -> CLAHE -> threshold fallback
-    processed_images = [gray]
-
-    # Strategy 2: CLAHE for contrast enhancement
+    # Build processing strategies to try in order
     clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8, 8))
     clahe_img = clahe.apply(gray)
-    processed_images.append(clahe_img)
+    blurred = cv2.GaussianBlur(gray, (5, 5), 0)
+    clahe_blurred = cv2.GaussianBlur(clahe_img, (5, 5), 0)
 
-    # Strategy 3: threshold fallback (only if everything else fails)
-    thresh = cv2.adaptiveThreshold(
-        gray, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C, cv2.THRESH_BINARY, 11, 2
-    )
-    processed_images.append(thresh)
+    processed_images = [
+        gray,         # 1. Original grayscale
+        blurred,      # 2. Light Gaussian blur (reduces Moiré)
+        clahe_blurred # 3. CLAHE + Gaussian blur combined
+    ]
 
     debug_img = None
     for processed in processed_images:
@@ -40,9 +38,9 @@ def scan_qr_code(img, debug: bool = False):
             if data:
                 return data, None  # QR found, no debug image needed
 
-    # Nothing worked - show debug image
+    # Nothing worked - show blurred debug image
     if debug:
-        debug_img = clahe_img  # Show CLAHE result for user inspection
+        debug_img = blurred  # Show blurred for user inspection
 
     return None, debug_img
 
