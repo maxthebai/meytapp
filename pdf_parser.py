@@ -105,16 +105,17 @@ def process_pdf_bytes(pdf_bytes):
         ring = rings[i]
         angle_clock = arrows[i]["angle"]
 
-       # Radius innerhalb des Ringbands berechnen.
-        # Meyton-Werte gehen von X.0 (nah Außenrand) bis X.9 (nah Innenrand).
-        # frac [0.0..0.9] wird auf [0.05..0.95] des Bands gemappt,
-        # damit kein Schuss exakt auf einer Ringlinie liegt.
-        ring_int = int(ring)
-        frac = ring - ring_int  # 0.0 bis 0.9
-        outer = inner_radius + (10 - ring_int) * ring_step
-        inner_r = (inner_radius + (10 - (ring_int + 1)) * ring_step) if ring_int < 10 else 0.0
-        frac_norm = 0.05 + (frac / 0.9) * 0.90  # [0.0,0.9] → [0.05,0.95]
-        radius = max(inner_r, outer - frac_norm * ring_step)
+       # Ring X.0 = nah Außenrand, Ring X.9 = nah Innenrand
+        # outer = Außenrand von Ring floor(ring)
+        # inner = Außenrand von Ring floor(ring)+1 (= Innenrand des Bands)
+        # frac [0.0..0.9] → Position im Band, mit 5% Abstand zu beiden Linien
+        import math as _math
+        floor_r = _math.floor(ring)
+        frac = ring - floor_r
+        outer = inner_radius + (10 - floor_r) * ring_step
+        inner_r = (inner_radius + (10 - (floor_r + 1)) * ring_step) if floor_r < 10 else 0.0
+        frac_safe = 0.05 + (frac / 0.9) * 0.90  # [0.0,0.9] → [0.05,0.95]
+        radius = outer - frac_safe * (outer - inner_r)
             
         theta = math.radians(angle_clock)
         x = round(radius * math.sin(theta), 2)
