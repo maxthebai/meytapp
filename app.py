@@ -192,28 +192,32 @@ with t_imp:
     st.subheader("📷 QR-Code scannen")
     cam = st.camera_input("QR-Code fotografieren")
     if cam:
-        qr_text = scan_qr(cam.read())
-        if qr_text:
-            st.success(f"QR-Code erkannt: {qr_text}")
-            with st.spinner("PDF wird heruntergeladen und importiert ..."):
-                try:
-                    response = requests.get(qr_text, timeout=15)
-                    response.raise_for_status()
-                    content = response.content
-                    if not content.startswith(b"%PDF"):
-                        st.error(
-                            "Die URL liefert keine gültige PDF-Datei. "
-                            "Möglicherweise ist eine Anmeldung im Meyton-System erforderlich."
-                        )
-                    else:
-                        import_pdf(content)
-                        st.rerun()
-                except requests.RequestException as e:
-                    st.error(f"PDF konnte nicht heruntergeladen werden: {e}")
-                except Exception as e:
-                    st.error(f"Fehler beim Importieren: {e}")
-        else:
-            st.error("Kein QR-Code erkannt – bitte näher heranhalten oder Licht verbessern.")
+        img_bytes = cam.read()
+        img_hash = hash(img_bytes)
+        if img_hash != st.session_state.get("last_qr_hash"):
+            qr_text = scan_qr(img_bytes)
+            if qr_text:
+                st.success(f"QR-Code erkannt: {qr_text}")
+                with st.spinner("PDF wird heruntergeladen und importiert ..."):
+                    try:
+                        response = requests.get(qr_text, timeout=15)
+                        response.raise_for_status()
+                        content = response.content
+                        if not content.startswith(b"%PDF"):
+                            st.error(
+                                "Die URL liefert keine gültige PDF-Datei. "
+                                "Möglicherweise ist eine Anmeldung im Meyton-System erforderlich."
+                            )
+                        else:
+                            st.session_state.last_qr_hash = img_hash
+                            import_pdf(content)
+                            st.rerun()
+                    except requests.RequestException as e:
+                        st.error(f"PDF konnte nicht heruntergeladen werden: {e}")
+                    except Exception as e:
+                        st.error(f"Fehler beim Importieren: {e}")
+            else:
+                st.error("Kein QR-Code erkannt – bitte näher heranhalten oder Licht verbessern.")
 
     st.divider()
     st.subheader("📄 PDF hochladen")
