@@ -105,12 +105,7 @@ def process_pdf_bytes(pdf_bytes):
         ring = rings[i]
         angle_clock = arrows[i]["angle"]
 
-       # Ring X.0 = nah Außenrand, Ring X.9 = nah Innenrand
-        # outer = Außenrand von Ring floor(ring)
-        # inner = Außenrand von Ring floor(ring)+1 (= Innenrand des Bands)
-        # frac [0.0..0.9] → Position im Band, mit 5% Abstand zu beiden Linien
-        import math as _math
-        floor_r = _math.floor(ring)
+        floor_r = math.floor(ring)
         frac = ring - floor_r
         outer = inner_radius + (10 - floor_r) * ring_step
         inner_r = (inner_radius + (10 - (floor_r + 1)) * ring_step) if floor_r < 10 else 0.0
