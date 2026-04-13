@@ -18,7 +18,18 @@ auth.login(location="main")
 
 if st.session_state.get("authentication_status") is not True:
     t1, t2 = st.tabs(["Login", "Registrieren"])
-    with t2: auth.register_user(location="main", merge_username_email=True)
+    with t1:
+        if st.session_state.get("authentication_status") is False:
+            st.error("Benutzername oder Passwort falsch. Bitte erneut versuchen.")
+        elif st.session_state.get("authentication_status") is None:
+            st.info("Bitte Benutzername und Passwort eingeben oder im Tab 'Registrieren' ein Konto erstellen.")
+    with t2:
+        try:
+            reg_result = auth.register_user(location="main", merge_username_email=True)
+            if reg_result and isinstance(reg_result, tuple) and reg_result[0]:
+                st.success(f"Registrierung erfolgreich! Willkommen, {reg_result[2]}. Du kannst dich jetzt im Tab 'Login' anmelden.")
+        except Exception:
+            pass
     st.stop()
 
 
@@ -128,12 +139,18 @@ with t_imp:
     st.divider()
     st.subheader("📄 PDF hochladen")
     up_pdf = st.file_uploader("Meyton PDF hochladen", type="pdf")
-    if st.button("PDF importieren") and up_pdf:
-        data = process_pdf_bytes(up_pdf.read())
-        save_shooting(st.session_state.username, data["date"], data["shooter"], data["discipline"],
-                      data["total_score"], ",".join(map(str, data["series"])), None, json.dumps(data["coordinates"]))
-        st.toast(f"✅ Import erfolgreich! {data['shooter']} – {data['total_score']} Ringe ({len(data['coordinates'])} Schüsse)", icon="🎯")
-        st.rerun()
+    if st.button("PDF importieren"):
+        if not up_pdf:
+            st.warning("Bitte zuerst eine PDF-Datei auswählen.")
+        else:
+            try:
+                data = process_pdf_bytes(up_pdf.read())
+                save_shooting(st.session_state.username, data["date"], data["shooter"], data["discipline"],
+                              data["total_score"], ",".join(map(str, data["series"])), None, json.dumps(data["coordinates"]))
+                st.toast(f"Import erfolgreich! {data['shooter']} – {data['total_score']} Ringe ({len(data['coordinates'])} Schüsse)", icon="🎯")
+                st.rerun()
+            except Exception as e:
+                st.error(f"Fehler beim Importieren der PDF: {e}")
 
 with t_his:
     if res:
@@ -150,6 +167,7 @@ with t_his:
         if st.button("Ausgewählten Eintrag löschen", type="secondary"):
             db_id = int(df[df["Nr"] == sel_nr]["db_id"].values[0])
             delete_shooting(db_id, st.session_state.username)
+            st.toast("Eintrag erfolgreich gelöscht.", icon="🗑️")
             st.rerun()
     else:
         st.info("Noch keine Ergebnisse. Importiere zuerst ein PDF.")
