@@ -257,10 +257,24 @@ with t_his:
             ),
         )
         if st.button("Ausgewählten Eintrag löschen", type="secondary"):
-            db_id = int(df[df["Nr"] == sel_nr]["db_id"].values[0])
-            delete_shooting(db_id, st.session_state.username)
-            st.toast("Eintrag erfolgreich gelöscht.", icon="🗑️")
-            st.rerun()
+            st.session_state.confirm_delete = sel_nr
+
+        if st.session_state.get("confirm_delete") == sel_nr:
+            st.warning(
+                f"Eintrag #{sel_nr} wirklich löschen? Diese Aktion kann nicht rückgängig gemacht werden."
+            )
+            col_ja, col_nein = st.columns(2)
+            with col_ja:
+                if st.button("Ja, löschen", type="primary"):
+                    db_id = int(df[df["Nr"] == sel_nr]["db_id"].values[0])
+                    delete_shooting(db_id, st.session_state.username)
+                    del st.session_state.confirm_delete
+                    st.toast("Eintrag erfolgreich gelöscht.", icon="🗑️")
+                    st.rerun()
+            with col_nein:
+                if st.button("Abbrechen"):
+                    del st.session_state.confirm_delete
+                    st.rerun()
 
 # ---------------------------------------------------------------------------
 # Tab: Verlauf
