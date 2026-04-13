@@ -116,7 +116,7 @@ def avg_per_shot(serien_str: str, gesamt: int) -> float:
 res = get_all_shootings(st.session_state.username)
 
 vorname = st.session_state.name.split()[0] if st.session_state.name else st.session_state.username
-st.title(f"Willkommen, {vorname}!")
+st.title(f"Gut Schuss, {vorname}!")
 
 t_imp, t_his, t_ver, t_det = st.tabs(["📥 Import", "📋 Historie", "📈 Verlauf", "🎯 Detail"])
 
