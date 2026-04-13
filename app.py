@@ -199,8 +199,15 @@ with t_imp:
                 try:
                     response = requests.get(qr_text, timeout=15)
                     response.raise_for_status()
-                    import_pdf(response.content)
-                    st.rerun()
+                    content = response.content
+                    if not content.startswith(b"%PDF"):
+                        st.error(
+                            "Die URL liefert keine gültige PDF-Datei. "
+                            "Möglicherweise ist eine Anmeldung im Meyton-System erforderlich."
+                        )
+                    else:
+                        import_pdf(content)
+                        st.rerun()
                 except requests.RequestException as e:
                     st.error(f"PDF konnte nicht heruntergeladen werden: {e}")
                 except Exception as e:
