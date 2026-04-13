@@ -1,38 +1,15 @@
-import sqlite3
-from datetime import datetime
+import os
+from supabase import create_client, Client
 from typing import Optional
 
+def _get_client() -> Client:
+    url = os.environ["SUPABASE_URL"]
+    key = os.environ["SUPABASE_KEY"]
+    return create_client(url, key)
 
-def init_db(db_path: str = "meytapp.db") -> None:
-    """Initialize the SQLite database with required tables."""
-    conn = sqlite3.connect(db_path)
-    cursor = conn.cursor()
-
-    # Create table
-    cursor.execute("""
-        CREATE TABLE IF NOT EXISTS shootings (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            user_id TEXT NOT NULL,
-            date TEXT NOT NULL,
-            shooter TEXT NOT NULL,
-            discipline TEXT NOT NULL,
-            total_score INTEGER NOT NULL,
-            series TEXT NOT NULL,
-            url TEXT,
-            coordinates TEXT,
-            created_at TEXT DEFAULT CURRENT_TIMESTAMP
-        )
-    """)
-
-    # Migration: Add coordinates column if it doesn't exist
-    cursor.execute("PRAGMA table_info(shootings)")
-    columns = [col[1] for col in cursor.fetchall()]
-    if "coordinates" not in columns:
-        cursor.execute("ALTER TABLE shootings ADD COLUMN coordinates TEXT")
-
-    conn.commit()
-    conn.close()
-
+def init_db() -> None:
+    """No-op: Supabase table must be created manually via SQL (see README)."""
+    pass
 
 def save_shooting(
     user_id: str,
@@ -43,51 +20,37 @@ def save_shooting(
     series: str,
     url: Optional[str] = None,
     coordinates: Optional[str] = None,
-    db_path: str = "meytapp.db"
 ) -> None:
-    """Save a shooting result to the database."""
-    conn = sqlite3.connect(db_path)
-    cursor = conn.cursor()
-    cursor.execute("""
-        INSERT INTO shootings (user_id, date, shooter, discipline, total_score, series, url, coordinates)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-    """, (user_id, date, shooter, discipline, total_score, series, url, coordinates))
-    conn.commit()
-    conn.close()
+    client = _get_client()
+    client.table("shootings").insert({
+        "user_id": user_id,
+        "date": date,
+        "shooter": shooter,
+        "discipline": discipline,
+        "total_score": total_score,
+        "series": series,
+        "url": url,
+        "coordinates": coordinates,
+    }).execute()
 
-
-def get_all_shootings(
-    user_id: Optional[str] = None,
-    db_path: str = "meytapp.db"
-) -> list:
-    """Retrieve shooting records for a specific user (or all if user_id is None)."""
-    conn = sqlite3.connect(db_path)
-    cursor = conn.cursor()
+def get_all_shootings(user_id: Optional[str] = None) -> list:
+    client = _get_client()
+    query = client.table("shootings").select(
+        "id, user_id, date, shooter, discipline, total_score, series, url, coordinates, created_at"
+    ).order("date", desc=True)
     if user_id:
-        cursor.execute("""
-            SELECT id, user_id, date, shooter, discipline, total_score, series, url, coordinates, created_at
-            FROM shootings
-            WHERE user_id = ?
-            ORDER BY date DESC
-        """, (user_id,))
-    else:
-        cursor.execute("""
-            SELECT id, user_id, date, shooter, discipline, total_score, series, url, coordinates, created_at
-            FROM shootings
-            ORDER BY date DESC
-        """)
-    rows = cursor.fetchall()
-    conn.close()
+        query = query.eq("user_id", user_id)
+    result = query.execute()
+    # Return as list of tuples to match original SQLite format
+    rows = []
+    for r in result.data:
+        rows.append((
+            r["id"], r["user_id"], r["date"], r["shooter"],
+            r["discipline"], r["total_score"], r["series"],
+            r.get("url"), r.get("coordinates"), r.get("created_at")
+        ))
     return rows
 
-
-def delete_shooting(shooting_id: int, user_id: str, db_path: str = "meytapp.db") -> None:
-    """Delete a shooting record by ID, only if it belongs to the user."""
-    conn = sqlite3.connect(db_path)
-    cursor = conn.cursor()
-    cursor.execute(
-        "DELETE FROM shootings WHERE id = ? AND user_id = ?",
-        (shooting_id, user_id)
-    )
-    conn.commit()
-    conn.close()
+def delete_shooting(shooting_id: int, user_id: str) -> None:
+    client = _get_client()
+    client.table("shootings").delete().eq("id", shooting_id).eq("user_id", user_id).execute()
