@@ -28,11 +28,16 @@ def _save_credentials_to_supabase(credentials: dict) -> None:
     """Persist updated credentials (after register/password change) back to Supabase."""
     client = _get_client()
     for username, data in credentials["usernames"].items():
-        # Upsert: update if exists, insert if not
+        # streamlit-authenticator may use 'name' or 'first_name'+'last_name'
+        name = (
+            data.get("name")
+            or f"{data.get('first_name', '')} {data.get('last_name', '')}".strip()
+            or username
+        )
         client.table("users").upsert({
             "username": username,
-            "name": data["name"],
-            "password": data["password"],
+            "name": name,
+            "password": data.get("password", data.get("hashed_password", "")),
             "email": data.get("email", ""),
         }, on_conflict="username").execute()
 
