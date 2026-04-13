@@ -88,14 +88,45 @@ def render_target(shots, discipline="Luftgewehr", zoom=1.0):
 st.sidebar.title(f"User: {st.session_state.name}")
 auth.logout(location="sidebar")
 
+def avg_per_shot(serien_str: str, gesamt: int) -> float:
+    """Durchschnitt pro Schuss aus den gespeicherten Ringwerten."""
+    if not serien_str:
+        return float(gesamt)
+    try:
+        vals = [float(x.strip()) for x in serien_str.split(",") if x.strip()]
+        if vals:
+            return round(sum(vals) / len(vals), 2)
+    except ValueError:
+        pass
+    return float(gesamt)
+
+
+# Daten einmal laden – alle Tabs nutzen dasselbe Ergebnis
+res = get_all_shootings(st.session_state.username)
+
 t_imp, t_his, t_ver, t_det = st.tabs(["📥 Import", "📋 Historie", "📈 Verlauf", "🎯 Detail"])
 
 with t_imp:
-    c1, c2, c3 = st.columns([1, 1, 1])
-    with c2:
-        st.write("### QR Scan")
-        cam = st.camera_input("Scanner", label_visibility="collapsed")
+    st.subheader("📷 QR-Code scannen")
+    cam = st.camera_input("QR-Code fotografieren")
+    if cam:
+        import cv2
+        import numpy as np
+        from pyzbar.pyzbar import decode
+        file_bytes = np.frombuffer(cam.read(), dtype=np.uint8)
+        img = cv2.imdecode(file_bytes, cv2.IMREAD_COLOR)
+        gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+        decoded = decode(gray) or decode(cv2.GaussianBlur(gray, (5, 5), 0))
+        if decoded:
+            qr_data = decoded[0].data.decode("utf-8")
+            st.success(f"QR-Code erkannt: {qr_data}")
+            st.session_state.qr_url = qr_data
+        else:
+            st.error("Kein QR-Code erkannt – bitte näher heranhalten oder Licht verbessern.")
+            st.session_state.pop("qr_url", None)
+
     st.divider()
+    st.subheader("📄 PDF hochladen")
     up_pdf = st.file_uploader("Meyton PDF hochladen", type="pdf")
     if st.button("PDF importieren") and up_pdf:
         data = process_pdf_bytes(up_pdf.read())
@@ -105,30 +136,41 @@ with t_imp:
         st.rerun()
 
 with t_his:
-    res = get_all_shootings(st.session_state.username)
     if res:
-        # Fortlaufende Nummer statt DB-ID anzeigen
         df = pd.DataFrame(res, columns=["db_id", "User", "Datum", "Schütze", "Disp", "Gesamt", "Serien", "URL", "Coords", "Time"])
         df = df.sort_values("db_id", ascending=False).reset_index(drop=True)
         df.insert(0, "Nr", range(1, len(df) + 1))
         st.dataframe(df[["Nr", "Datum", "Disp", "Gesamt"]], use_container_width=True, hide_index=True)
 
-        del_nr = st.number_input("Nr. zum Löschen", min_value=1, max_value=len(df), step=1)
-        if st.button("Löschen"):
-            db_id = int(df[df["Nr"] == del_nr]["db_id"].values[0])
+        sel_nr = st.selectbox(
+            "Eintrag auswählen",
+            df["Nr"].tolist(),
+            format_func=lambda n: f"#{n} – {df[df['Nr']==n]['Datum'].values[0]} – {df[df['Nr']==n]['Gesamt'].values[0]} Ringe"
+        )
+        if st.button("Ausgewählten Eintrag löschen", type="secondary"):
+            db_id = int(df[df["Nr"] == sel_nr]["db_id"].values[0])
             delete_shooting(db_id, st.session_state.username)
             st.rerun()
+    else:
+        st.info("Noch keine Ergebnisse. Importiere zuerst ein PDF.")
 
 with t_ver:
-    if res:
+    if res and len(res) >= 2:
         df2 = pd.DataFrame(res, columns=["db_id", "User", "Datum", "Schütze", "Disp", "Gesamt", "Serien", "URL", "Coords", "Time"])
         df2["Datum"] = pd.to_datetime(df2["Datum"], dayfirst=True).dt.date
+        df2["Ø Ringe/Schuss"] = df2.apply(lambda r: avg_per_shot(r["Serien"], r["Gesamt"]), axis=1)
         import plotly.express as px
-        st.plotly_chart(px.line(df2.sort_values("Datum"), x="Datum", y="Gesamt", markers=True), use_container_width=True)
+        fig = px.line(df2.sort_values("Datum"), x="Datum", y="Ø Ringe/Schuss", markers=True,
+                      title="Durchschnittliche Ringe pro Schuss")
+        fig.update_layout(yaxis=dict(range=[0, 11]), yaxis_title="Ø Ringe pro Schuss")
+        st.plotly_chart(fig, use_container_width=True)
+    elif res:
+        st.info("Mindestens 2 Ergebnisse für den Verlauf nötig.")
+    else:
+        st.info("Noch keine Ergebnisse.")
 
 with t_det:
     if res:
-        # Auswahl per fortlaufender Nummer
         df3 = pd.DataFrame(res, columns=["db_id", "User", "Datum", "Schütze", "Disp", "Gesamt", "Serien", "URL", "Coords", "Time"])
         df3 = df3.sort_values("db_id", ascending=False).reset_index(drop=True)
         df3.insert(0, "Nr", range(1, len(df3) + 1))
@@ -149,5 +191,8 @@ with t_det:
             st.pyplot(render_target(shots, discipline, zoom=zoom))
         with c_i:
             st.metric("Gesamt", row["Gesamt"])
+            st.metric("Ø pro Schuss", avg_per_shot(row["Serien"], row["Gesamt"]))
             st.write(f"Waffe: {discipline}")
             st.write(f"Serien: {row['Serien']}")
+    else:
+        st.info("Noch keine Ergebnisse.")
