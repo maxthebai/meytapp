@@ -1,46 +1,77 @@
+import os
+import json
 import yaml
 from pathlib import Path
+from supabase import create_client, Client
 import streamlit_authenticator as st_auth
-from streamlit_authenticator import Hasher, Authenticate
+from streamlit_authenticator import Authenticate
 
+def _get_client() -> Client:
+    url = os.environ["SUPABASE_URL"]
+    key = os.environ["SUPABASE_KEY"]
+    return create_client(url, key)
 
-def get_credentials_path() -> Path:
-    """Return path to the credentials YAML file."""
-    return Path("credentials.yaml")
-
-
-def _get_default_config() -> dict:
-    """Return the default credentials/config structure."""
-    return {
-        "cookie": {
-            "name": "meyton_app_auth_cookie",
-            "key": "ein_geheimer_schluessel_123",
-            "expiry_days": 30.0,
-        },
-        "credentials": {
-            "usernames": {}
+def _load_credentials_from_supabase() -> dict:
+    """Load user credentials from Supabase and return in streamlit-authenticator format."""
+    client = _get_client()
+    result = client.table("users").select("username, name, password, email").execute()
+    usernames = {}
+    for u in result.data:
+        usernames[u["username"]] = {
+            "name": u["name"],
+            "password": u["password"],  # already hashed
+            "email": u.get("email", ""),
         }
-    }
+    return {"usernames": usernames}
 
+def _save_credentials_to_supabase(credentials: dict) -> None:
+    """Persist updated credentials (after register/password change) back to Supabase."""
+    client = _get_client()
+    for username, data in credentials["usernames"].items():
+        # Upsert: update if exists, insert if not
+        client.table("users").upsert({
+            "username": username,
+            "name": data["name"],
+            "password": data["password"],
+            "email": data.get("email", ""),
+        }, on_conflict="username").execute()
 
 def init_auth() -> Authenticate:
     """
-    Initialize and return the authenticator.
-    Creates a default credentials file if none exists.
+    Initialize authenticator backed by Supabase.
+    Credentials are loaded from the 'users' table and written back after changes.
     """
-    credentials_path = get_credentials_path()
+    credentials = _load_credentials_from_supabase()
 
-    if not credentials_path.exists():
-        credentials_path.write_text(yaml.dump(_get_default_config()))
-
-    credentials = str(credentials_path)
+    # Write a temporary yaml for streamlit-authenticator (it needs a file path)
+    tmp_path = Path("/tmp/credentials.yaml")
+    config = {
+        "cookie": {
+            "name": "meyton_app_auth_cookie",
+            "key": os.environ.get("AUTH_COOKIE_KEY", "fallback_secret_key_change_me"),
+            "expiry_days": 30.0,
+        },
+        "credentials": credentials,
+    }
+    tmp_path.write_text(yaml.dump(config))
 
     authenticator = Authenticate(
-        credentials=credentials,
+        credentials=str(tmp_path),
         cookie_name="meyton_app_auth_cookie",
-        cookie_key="ein_geheimer_schluessel_123",
+        cookie_key=os.environ.get("AUTH_COOKIE_KEY", "fallback_secret_key_change_me"),
         cookie_expiry_days=30,
         auto_hash=True,
     )
 
+    # Monkey-patch: after login/register, sync back to Supabase
+    _original_register = authenticator.register_user
+
+    def _register_and_sync(*args, **kwargs):
+        result = _original_register(*args, **kwargs)
+        # Reload yaml and push to Supabase
+        updated = yaml.safe_load(tmp_path.read_text())
+        _save_credentials_to_supabase(updated["credentials"])
+        return result
+
+    authenticator.register_user = _register_and_sync
     return authenticator
