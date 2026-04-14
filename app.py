@@ -126,6 +126,7 @@ def import_pdf(pdf_bytes: bytes) -> None:
         ",".join(map(str, data["series"])),
         None,
         json.dumps(data["coordinates"]),
+        data.get("scoring_format", "ganz"),
     )
     st.toast(
         f"Import erfolgreich! {data['shooter']} – "
@@ -166,7 +167,7 @@ if share_token:
             st.query_params.clear()
             st.rerun()
     else:
-        _, _, date, shooter, discipline, total_score, series, _, coords_json, _ = row
+        _, _, date, shooter, discipline, total_score, series, _, coords_json, _, _ = row
         shots = recalc_shots(json.loads(coords_json), discipline)
 
         st.title(f"Ergebnis von {shooter}")
@@ -299,7 +300,7 @@ with t_his:
         st.info("Noch keine Ergebnisse. Importiere zuerst ein PDF.")
     else:
         df = pd.DataFrame(
-            res, columns=["db_id", "User", "Datum", "Schütze", "Disp", "Gesamt", "Serien", "URL", "Coords", "Time"]
+            res, columns=["db_id", "User", "Datum", "Schütze", "Disp", "Gesamt", "Serien", "URL", "Coords", "Format", "Time"]
         )
         df = df.sort_values("db_id", ascending=False).reset_index(drop=True)
         df.insert(0, "Nr", range(1, len(df) + 1))
@@ -345,16 +346,23 @@ with t_ver:
         st.info("Mindestens 2 Ergebnisse für den Verlauf nötig.")
     else:
         df2 = pd.DataFrame(
-            res, columns=["db_id", "User", "Datum", "Schütze", "Disp", "Gesamt", "Serien", "URL", "Coords", "Time"]
+            res, columns=["db_id", "User", "Datum", "Schütze", "Disp", "Gesamt", "Serien", "URL", "Coords", "Format", "Time"]
         )
         df2["Datum"] = pd.to_datetime(df2["Datum"], dayfirst=True).dt.date
-        df2["Ø Ringe/Schuss"] = df2.apply(lambda r: avg_per_shot(r["Serien"], r["Gesamt"]), axis=1)
+        # Always use the integer total score for chart/average calculations
+        df2["Gesamt_int"] = df2["Gesamt"].apply(lambda v: int(round(float(v))))
+        df2["Ø Ringe/Schuss"] = df2.apply(lambda r: avg_per_shot(r["Serien"], r["Gesamt_int"]), axis=1)
+        df2["Wertung"] = df2["Format"].apply(lambda f: "Zehntelwertung" if f == "zehntel" else "Ganzwertung")
 
+        df2_sorted = df2.sort_values("Datum")
         fig = px.line(
-            df2.sort_values("Datum"),
+            df2_sorted,
             x="Datum",
             y="Ø Ringe/Schuss",
             markers=True,
+            symbol="Wertung",
+            symbol_map={"Ganzwertung": "circle", "Zehntelwertung": "diamond"},
+            hover_data={"Wertung": True},
             title="Durchschnittliche Ringe pro Schuss",
         )
         fig.update_layout(yaxis=dict(range=[0, 11]), yaxis_title="Ø Ringe pro Schuss")
@@ -369,7 +377,7 @@ with t_det:
         st.info("Noch keine Ergebnisse.")
     else:
         df3 = pd.DataFrame(
-            res, columns=["db_id", "User", "Datum", "Schütze", "Disp", "Gesamt", "Serien", "URL", "Coords", "Time"]
+            res, columns=["db_id", "User", "Datum", "Schütze", "Disp", "Gesamt", "Serien", "URL", "Coords", "Format", "Time"]
         )
         df3 = df3.sort_values("db_id", ascending=False).reset_index(drop=True)
         df3.insert(0, "Nr", range(1, len(df3) + 1))
