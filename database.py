@@ -1,4 +1,5 @@
 import os
+import uuid
 from supabase import create_client, Client
 from typing import Optional
 
@@ -54,3 +55,42 @@ def get_all_shootings(user_id: Optional[str] = None) -> list:
 def delete_shooting(shooting_id: int, user_id: str) -> None:
     client = _get_client()
     client.table("shootings").delete().eq("id", shooting_id).eq("user_id", user_id).execute()
+
+# ---------------------------------------------------------------------------
+# Share-Links
+# Supabase-Tabelle (einmalig per SQL anlegen):
+#   CREATE TABLE shares (
+#       token TEXT PRIMARY KEY,
+#       shooting_id BIGINT NOT NULL,
+#       created_at TEXT DEFAULT (to_char(now(), 'YYYY-MM-DD"T"HH24:MI:SS'))
+#   );
+# ---------------------------------------------------------------------------
+
+def create_share_token(shooting_id: int) -> str:
+    """Erstellt ein Share-Token für eine Schuss-Session. Gibt den Token zurück."""
+    token = uuid.uuid4().hex
+    client = _get_client()
+    client.table("shares").insert({
+        "token": token,
+        "shooting_id": shooting_id,
+    }).execute()
+    return token
+
+def get_shooting_by_share_token(token: str) -> Optional[tuple]:
+    """Lädt eine Schuss-Session anhand eines Share-Tokens (ohne Auth). Gibt Tuple oder None zurück."""
+    client = _get_client()
+    share = client.table("shares").select("shooting_id").eq("token", token).execute()
+    if not share.data:
+        return None
+    shooting_id = share.data[0]["shooting_id"]
+    result = client.table("shootings").select(
+        "id, user_id, date, shooter, discipline, total_score, series, url, coordinates, created_at"
+    ).eq("id", shooting_id).execute()
+    if not result.data:
+        return None
+    r = result.data[0]
+    return (
+        r["id"], r["user_id"], r["date"], r["shooter"],
+        r["discipline"], r["total_score"], r["series"],
+        r.get("url"), r.get("coordinates"), r.get("created_at"),
+    )

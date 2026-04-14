@@ -11,7 +11,14 @@ import streamlit as st
 from pyzbar.pyzbar import decode
 
 from auth import init_auth
-from database import delete_shooting, get_all_shootings, init_db, save_shooting
+from database import (
+    create_share_token,
+    delete_shooting,
+    get_all_shootings,
+    get_shooting_by_share_token,
+    init_db,
+    save_shooting,
+)
 from pdf_parser import process_pdf_bytes
 
 # ---------------------------------------------------------------------------
@@ -20,38 +27,6 @@ from pdf_parser import process_pdf_bytes
 
 st.set_page_config(page_title="Meytapp🎯", layout="wide")
 init_db()
-
-if "authenticator" not in st.session_state:
-    st.session_state.authenticator = init_auth()
-
-auth = st.session_state.authenticator
-auth.login(location="main")
-
-# ---------------------------------------------------------------------------
-# Auth-Gate
-# ---------------------------------------------------------------------------
-
-if st.session_state.get("authentication_status") is not True:
-    t_login, t_reg = st.tabs(["Login", "Registrieren"])
-
-    with t_login:
-        if st.session_state.get("authentication_status") is False:
-            st.error("Benutzername oder Passwort falsch. Bitte erneut versuchen.")
-        else:
-            st.info("Bitte anmelden oder im Tab 'Registrieren' ein Konto erstellen.")
-
-    with t_reg:
-        try:
-            reg_result = auth.register_user(location="main", merge_username_email=True)
-            if reg_result and isinstance(reg_result, tuple) and reg_result[0]:
-                st.success(
-                    f"Registrierung erfolgreich! Willkommen, {reg_result[2]}. "
-                    "Du kannst dich jetzt im Tab 'Login' anmelden."
-                )
-        except Exception:
-            pass
-
-    st.stop()
 
 # ---------------------------------------------------------------------------
 # Hilfsfunktionen
@@ -165,6 +140,88 @@ def scan_qr(image_bytes: bytes):
     gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
     decoded = decode(gray) or decode(cv2.GaussianBlur(gray, (5, 5), 0))
     return decoded[0].data.decode("utf-8") if decoded else None
+
+
+def _build_share_url(token: str) -> str:
+    """Baut die vollständige Share-URL aus dem aktuellen Host."""
+    try:
+        host = st.context.headers.get("host", "localhost:8501")
+        is_local = host.startswith("localhost") or host.startswith("127.")
+        protocol = "http" if is_local else "https"
+        return f"{protocol}://{host}/?share={token}"
+    except Exception:
+        return f"/?share={token}"
+
+# ---------------------------------------------------------------------------
+# Share-Link-Ansicht (vor Auth-Gate — kein Login erforderlich)
+# ---------------------------------------------------------------------------
+
+share_token = st.query_params.get("share")
+if share_token:
+    row = get_shooting_by_share_token(share_token)
+    if row is None:
+        st.error("Dieser Link ist ungültig oder wurde gelöscht.")
+        if st.button("Zur App"):
+            st.query_params.clear()
+            st.rerun()
+    else:
+        _, _, date, shooter, discipline, total_score, series, _, coords_json, _ = row
+        shots = recalc_shots(json.loads(coords_json), discipline)
+
+        st.title(f"Ergebnis von {shooter}")
+        st.caption(f"{date}  ·  {discipline}")
+
+        zoom = st.slider("Zoom", min_value=1.0, max_value=8.0, value=1.0, step=0.5, key="share_zoom")
+        col_scheibe, col_info = st.columns([2, 1])
+        with col_scheibe:
+            st.pyplot(render_target(shots, discipline, zoom=zoom))
+        with col_info:
+            st.metric("Gesamt", total_score)
+            st.metric("Ø pro Schuss", avg_per_shot(series, total_score))
+            st.write(f"Waffe: {discipline}")
+            st.write(f"Serien: {series}")
+
+        st.divider()
+        if st.button("Anmelden / Zur App"):
+            st.query_params.clear()
+            st.rerun()
+    st.stop()
+
+# ---------------------------------------------------------------------------
+# Auth-Initialisierung & Login
+# ---------------------------------------------------------------------------
+
+if "authenticator" not in st.session_state:
+    st.session_state.authenticator = init_auth()
+
+auth = st.session_state.authenticator
+auth.login(location="main")
+
+# ---------------------------------------------------------------------------
+# Auth-Gate
+# ---------------------------------------------------------------------------
+
+if st.session_state.get("authentication_status") is not True:
+    t_login, t_reg = st.tabs(["Login", "Registrieren"])
+
+    with t_login:
+        if st.session_state.get("authentication_status") is False:
+            st.error("Benutzername oder Passwort falsch. Bitte erneut versuchen.")
+        else:
+            st.info("Bitte anmelden oder im Tab 'Registrieren' ein Konto erstellen.")
+
+    with t_reg:
+        try:
+            reg_result = auth.register_user(location="main", merge_username_email=True)
+            if reg_result and isinstance(reg_result, tuple) and reg_result[0]:
+                st.success(
+                    f"Registrierung erfolgreich! Willkommen, {reg_result[2]}. "
+                    "Du kannst dich jetzt im Tab 'Login' anmelden."
+                )
+        except Exception:
+            pass
+
+    st.stop()
 
 # ---------------------------------------------------------------------------
 # Sidebar
@@ -338,3 +395,19 @@ with t_det:
             st.metric("Ø pro Schuss", avg_per_shot(row["Serien"], row["Gesamt"]))
             st.write(f"Waffe: {discipline}")
             st.write(f"Serien: {row['Serien']}")
+
+        # --- Teilen ---
+        st.divider()
+        if st.button("Link teilen", icon="🔗"):
+            db_id = int(row["db_id"])
+            token = create_share_token(db_id)
+            share_url = _build_share_url(token)
+            st.session_state[f"share_url_{choice_nr}"] = share_url
+
+        if f"share_url_{choice_nr}" in st.session_state:
+            st.text_input(
+                "Teilen-Link (kopieren und verschicken):",
+                value=st.session_state[f"share_url_{choice_nr}"],
+                key=f"share_input_{choice_nr}",
+            )
+            st.caption("Der Link kann ohne Account geöffnet werden. Er wird nicht automatisch gespeichert.")
