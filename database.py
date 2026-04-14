@@ -21,6 +21,7 @@ def save_shooting(
     series: str,
     url: Optional[str] = None,
     coordinates: Optional[str] = None,
+    scoring_format: str = "ganz",
 ) -> None:
     client = _get_client()
     client.table("shootings").insert({
@@ -32,12 +33,13 @@ def save_shooting(
         "series": series,
         "url": url,
         "coordinates": coordinates,
+        "scoring_format": scoring_format,
     }).execute()
 
 def get_all_shootings(user_id: Optional[str] = None) -> list:
     client = _get_client()
     query = client.table("shootings").select(
-        "id, user_id, date, shooter, discipline, total_score, series, url, coordinates, created_at"
+        "id, user_id, date, shooter, discipline, total_score, series, url, coordinates, scoring_format, created_at"
     ).order("date", desc=True)
     if user_id:
         query = query.eq("user_id", user_id)
@@ -48,7 +50,7 @@ def get_all_shootings(user_id: Optional[str] = None) -> list:
         rows.append((
             r["id"], r["user_id"], r["date"], r["shooter"],
             r["discipline"], r["total_score"], r["series"],
-            r.get("url"), r.get("coordinates"), r.get("created_at")
+            r.get("url"), r.get("coordinates"), r.get("scoring_format", "ganz"), r.get("created_at")
         ))
     return rows
 
@@ -84,7 +86,7 @@ def get_shooting_by_share_token(token: str) -> Optional[tuple]:
         return None
     shooting_id = share.data[0]["shooting_id"]
     result = client.table("shootings").select(
-        "id, user_id, date, shooter, discipline, total_score, series, url, coordinates, created_at"
+        "id, user_id, date, shooter, discipline, total_score, series, url, coordinates, scoring_format, created_at"
     ).eq("id", shooting_id).execute()
     if not result.data:
         return None
@@ -92,5 +94,5 @@ def get_shooting_by_share_token(token: str) -> Optional[tuple]:
     return (
         r["id"], r["user_id"], r["date"], r["shooter"],
         r["discipline"], r["total_score"], r["series"],
-        r.get("url"), r.get("coordinates"), r.get("created_at"),
+        r.get("url"), r.get("coordinates"), r.get("scoring_format", "ganz"), r.get("created_at"),
     )

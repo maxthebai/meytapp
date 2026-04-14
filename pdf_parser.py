@@ -75,18 +75,25 @@ def process_pdf_bytes(pdf_bytes):
             shooter = line
             break
 
-    # --- Gesamtergebnis ---
-    gesamt_match = re.search(r"Ergebnis:\s+(\d+)\s+\(([0-9.]+)\)", full_text)
-    total_score = int(gesamt_match.group(1)) if gesamt_match else 0
+    # --- Gesamtergebnis & Scoring-Format ---
+    gesamt_match = re.search(r"Ergebnis:\s+(\d+(?:\.\d+)?)\s+\(([0-9.]+)\)", full_text)
+    if gesamt_match:
+        total_score_raw = gesamt_match.group(1)
+        scoring_format = "zehntel" if "." in total_score_raw else "ganz"
+        total_score_int = int(round(float(total_score_raw)))
+    else:
+        scoring_format = "ganz"
+        total_score_int = 0
 
     # --- Serien ---
-    serien_match = re.search(r"Serien:\s+([\d\s]+)", full_text)
-    series = [int(x) for x in serien_match.group(1).strip().split()] if serien_match else []
+    serien_match = re.search(r"Serien:\s+([\d.\s]+)", full_text)
+    series = [float(x) for x in serien_match.group(1).strip().split()] if serien_match else []
 
     # --- Ringwerte aus Serienblöcken ---
+    # Matches both whole-number (9) and 10th-ring (9.7) formats, plus optional inner-ring asterisk
     serie_pattern = re.compile(
-        r"Serie\s+\d+:.*?\n((?:[0-9]+\.[0-9]\*?\s+){4}[0-9]+\.[0-9]\*?)\s*\n"
-        r"((?:[0-9]+\.[0-9]\*?\s+){4}[0-9]+\.[0-9]\*?)"
+        r"Serie\s+\d+:.*?\n((?:[0-9]+(?:\.[0-9])?\*?\s+){4}[0-9]+(?:\.[0-9])?\*?)\s*\n"
+        r"((?:[0-9]+(?:\.[0-9])?\*?\s+){4}[0-9]+(?:\.[0-9])?\*?)"
     )
     rings = []
     for m in serie_pattern.finditer(full_text):
@@ -122,7 +129,9 @@ def process_pdf_bytes(pdf_bytes):
         "date": date_str,
         "shooter": shooter,
         "discipline": discipline,
-        "total_score": total_score,
+        "total_score": total_score_int,
+        "total_score_int": total_score_int,
+        "scoring_format": scoring_format,
         "series": series,
         "coordinates": coordinates,
     }
