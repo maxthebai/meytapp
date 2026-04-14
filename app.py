@@ -39,7 +39,8 @@ def avg_per_shot(serien_str: str, gesamt: int) -> float:
     try:
         vals = [float(x.strip()) for x in serien_str.split(",") if x.strip()]
         if vals:
-            return round(sum(vals) / len(vals), 2)
+            total_shots = len(vals) * 10
+            return round(gesamt / total_shots, 2)
     except ValueError:
         pass
     return float(gesamt)
