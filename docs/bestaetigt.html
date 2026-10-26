@@ -1,0 +1,97 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex">
+<meta name="referrer" content="no-referrer">
+<title>Meytapp – E-Mail bestätigt</title>
+<style>
+  :root {
+    --bg: #111614;
+    --card: #222a27;
+    --text: #f1ece1;
+    --muted: #a9b0ad;
+    --accent: #f5c84c;
+    --ok: #4ccf7a;
+    --err: #ef4b3c;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; }
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 16px;
+  }
+  .card {
+    background: var(--card);
+    border-radius: 24px;
+    padding: 40px 28px;
+    max-width: 420px;
+    width: 100%;
+    text-align: center;
+  }
+  .icon { width: 72px; height: 72px; margin: 0 auto 20px; }
+  h1 {
+    font-family: Georgia, "Times New Roman", serif;
+    font-size: 1.9rem;
+    margin: 0 0 12px;
+  }
+  p { color: var(--muted); line-height: 1.5; margin: 0 0 28px; }
+  .btn {
+    display: inline-block;
+    background: var(--accent);
+    color: #111614;
+    font-weight: 600;
+    text-decoration: none;
+    padding: 14px 28px;
+    border-radius: 999px;
+  }
+  .hint { font-size: .85rem; margin: 20px 0 0; }
+  .hidden { display: none; }
+</style>
+</head>
+<body>
+  <main class="card" id="ok">
+    <svg class="icon" viewBox="0 0 72 72" aria-hidden="true">
+      <circle cx="36" cy="36" r="34" fill="none" stroke="#4ccf7a" stroke-width="4"/>
+      <circle cx="36" cy="36" r="22" fill="none" stroke="#4ccf7a" stroke-width="3" opacity=".5"/>
+      <path d="M24 37l8 8 16-17" fill="none" stroke="#4ccf7a" stroke-width="5" stroke-linecap="round" stroke-linejoin="round"/>
+    </svg>
+    <h1>E-Mail bestätigt</h1>
+    <p>Dein Meytapp-Konto ist jetzt aktiv. Du kannst dich in der App anmelden.</p>
+    <a class="btn" href="meytapp://bestaetigt">Meytapp öffnen</a>
+    <p class="hint">Falls sich nichts tut: Öffne die App einfach selbst.</p>
+  </main>
+
+  <main class="card hidden" id="err">
+    <svg class="icon" viewBox="0 0 72 72" aria-hidden="true">
+      <circle cx="36" cy="36" r="34" fill="none" stroke="#ef4b3c" stroke-width="4"/>
+      <path d="M36 20v22M36 52v1" stroke="#ef4b3c" stroke-width="5" stroke-linecap="round"/>
+    </svg>
+    <h1>Link ungültig</h1>
+    <p>Der Bestätigungslink ist abgelaufen oder wurde schon benutzt. Melde dich in der App an – dort kannst du dir einen neuen Link schicken lassen.</p>
+    <a class="btn" href="meytapp://bestaetigt">Meytapp öffnen</a>
+  </main>
+
+<script>
+  // Supabase hängt Tokens oder Fehler an die URL. Fehler auswerten,
+  // danach alles aus der Adresszeile entfernen. Es wird nichts gespeichert oder gesendet.
+  (function () {
+    var raw = (location.hash || '').slice(1) + '&' + (location.search || '').slice(1);
+    var params = new URLSearchParams(raw);
+    if (params.get('error') || params.get('error_code')) {
+      document.getElementById('ok').classList.add('hidden');
+      document.getElementById('err').classList.remove('hidden');
+    }
+    if (location.hash || location.search) {
+      history.replaceState(null, '', location.pathname);
+    }
+  })();
+</script>
+</body>
+</html>
