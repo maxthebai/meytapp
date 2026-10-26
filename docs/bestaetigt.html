@@ -41,17 +41,7 @@
     font-size: 1.9rem;
     margin: 0 0 12px;
   }
-  p { color: var(--muted); line-height: 1.5; margin: 0 0 28px; }
-  .btn {
-    display: inline-block;
-    background: var(--accent);
-    color: #111614;
-    font-weight: 600;
-    text-decoration: none;
-    padding: 14px 28px;
-    border-radius: 999px;
-  }
-  .hint { font-size: .85rem; margin: 20px 0 0; }
+  p { color: var(--muted); line-height: 1.5; margin: 0; }
   .hidden { display: none; }
 </style>
 </head>
@@ -64,8 +54,6 @@
     </svg>
     <h1>E-Mail bestätigt</h1>
     <p>Dein Meytapp-Konto ist jetzt aktiv. Du kannst dich in der App anmelden.</p>
-    <a class="btn" href="meytapp://bestaetigt">Meytapp öffnen</a>
-    <p class="hint">Falls sich nichts tut: Öffne die App einfach selbst.</p>
   </main>
 
   <main class="card hidden" id="err">
@@ -75,7 +63,6 @@
     </svg>
     <h1>Link ungültig</h1>
     <p>Der Bestätigungslink ist abgelaufen oder wurde schon benutzt. Melde dich in der App an – dort kannst du dir einen neuen Link schicken lassen.</p>
-    <a class="btn" href="meytapp://bestaetigt">Meytapp öffnen</a>
   </main>
 
 <script>
